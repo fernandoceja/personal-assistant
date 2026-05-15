@@ -42,25 +42,20 @@ TOKEN_PATH = HERMES_HOME / "google_token.json"
 CLIENT_SECRET_PATH = HERMES_HOME / "google_client_secret.json"
 PENDING_AUTH_PATH = HERMES_HOME / "google_oauth_pending.json"
 
-# Service-scoped OAuth support. Phase 2 assistant calendar reads must use the
-# calendar.readonly scope only; do not use the full calendar scope for this workflow.
+# Calendar-only OAuth support for the preserved Phase 2 safety patch.
+# This backup intentionally cannot request Gmail, Drive, Contacts, Sheets, or Docs
+# scopes. Gmail is deferred to a separate future patch/setup pass; do not add
+# Gmail scopes here before the calendar-readonly OAuth flow is completed and reviewed.
+#
+# Phase 2 assistant calendar reads must use the calendar.readonly scope only.
 # Forbidden for Phase 2 calendar safety:
 #   https://www.googleapis.com/auth/calendar
 #   https://www.googleapis.com/auth/calendar.events
 #   https://www.googleapis.com/auth/calendar.events.owned
 SERVICE_SCOPES = {
-    "email": [
-        "https://www.googleapis.com/auth/gmail.readonly",
-        "https://www.googleapis.com/auth/gmail.send",
-        "https://www.googleapis.com/auth/gmail.modify",
-    ],
     "calendar": ["https://www.googleapis.com/auth/calendar.readonly"],
-    "drive": ["https://www.googleapis.com/auth/drive"],
-    "contacts": ["https://www.googleapis.com/auth/contacts.readonly"],
-    "sheets": ["https://www.googleapis.com/auth/spreadsheets"],
-    "docs": ["https://www.googleapis.com/auth/documents"],
 }
-DEFAULT_SERVICES = ["email", "calendar", "drive", "contacts", "sheets", "docs"]
+DEFAULT_SERVICES = ["calendar"]
 
 
 def scopes_for_services(services_value: str | None) -> list[str]:
@@ -471,7 +466,7 @@ def main():
     group.add_argument("--auth-code", metavar="CODE", help="Exchange auth code for token")
     group.add_argument("--revoke", action="store_true", help="Revoke and delete stored token")
     group.add_argument("--install-deps", action="store_true", help="Install Python dependencies")
-    parser.add_argument("--services", default="all", help="Comma-separated services for OAuth scopes: all,email,calendar,drive,contacts,sheets,docs")
+    parser.add_argument("--services", default="calendar", help="Calendar-only OAuth scopes for this safety patch. Valid values: calendar or all (all maps to calendar only). Gmail is intentionally deferred.")
     args = parser.parse_args()
     try:
         required_scopes = scopes_for_services(args.services)

@@ -20,6 +20,16 @@ https://www.googleapis.com/auth/calendar.readonly
 
 Do not use the full calendar scope for Phase 2 assistant calendar workflows.
 
+Gmail is intentionally deferred. This preserved patch is calendar-only; its setup path cannot request Gmail scopes. Do not add Gmail OAuth scopes to this folder before the calendar-readonly OAuth flow is completed and reviewed.
+
+Approved setup command:
+
+```bash
+python3 docs/patches/google-workspace-calendar-readonly/setup.py --auth-url --services calendar
+```
+
+`--services calendar` is the explicit safe path. In this backup, `all` maps to calendar only; Gmail, Drive, Contacts, Sheets, and Docs are not valid/requestable services.
+
 ## Approved Phase 2 assistant calendar command
 
 Phase 2 assistant workflows must use:
