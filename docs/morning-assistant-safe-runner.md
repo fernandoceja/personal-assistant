@@ -9,6 +9,7 @@ This document describes `scripts/run-morning-assistant-safe.sh`, the manual-firs
   - `check-in`
   - `ai-news`
   - `calendar-local`
+  - `calendar-google-readonly`
   - `full-safe`
 - Defaults to dry-run/prompt-only behavior unless `--execute` is explicitly provided and Codex CLI is available.
 - Detects Codex CLI with `command -v codex`.
@@ -68,6 +69,14 @@ Local Apple Calendar/iCalendar summary only:
 scripts/run-morning-assistant-safe.sh --dry-run --mode calendar-local
 ```
 
+Google Calendar readonly diagnostic only:
+
+```bash
+scripts/run-morning-assistant-safe.sh --dry-run --mode calendar-google-readonly
+```
+
+This mode performs a live readonly Google Calendar event read and requires separate explicit approval before each test run.
+
 Full safe mode:
 
 ```bash
@@ -126,13 +135,50 @@ Location safety note: if a location field appears to contain a URL or common mee
 
 If Calendar.app permission is denied, `osascript` is unavailable, or a preferred calendar is missing, the script writes a clear diagnostic and continues.
 
-## Why Google Calendar OAuth is deferred
+## Google Calendar readonly diagnostic behavior
 
-Google Calendar support is intentionally not implemented yet. Future support should use the preserved `calendar.readonly` patch under:
+The `calendar-google-readonly` mode is an explicit, separate diagnostic mode. It is not wired into `full-safe`.
 
-`docs/patches/google-workspace-calendar-readonly/`
+It uses the Hermes Google Workspace skill from:
 
-Before enabling it, add an explicit calendar safe-list and verify the OAuth flow uses only read-only calendar scope. The safe runner avoids broad calendar scopes.
+`/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes`
+
+Exact command used by the runner:
+
+```bash
+HERMES_HOME="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes" "/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/hermes-agent/venv/bin/python3" "/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py" calendar safe-list --max 25
+```
+
+Allowed event fields only:
+
+- summary
+- start
+- end
+- location
+
+Excluded fields:
+
+- descriptions
+- attendees
+- guests
+- URLs
+- meeting links
+- attachments
+- conference data
+- reminders
+- creator/organizer metadata
+
+Safety boundary:
+
+- No Gmail access.
+- No Google Calendar writes, event creation, event edits, deletions, invitations, RSVP changes, or reminder changes.
+- No cron jobs, LaunchAgents, schedules, or recurring automation.
+- No iMessage sends.
+- No memory writes.
+- No credential, token, or client secret modifications.
+- No credential, token, or client secret contents should be printed.
+
+Running this mode performs a live readonly event read and requires separate explicit approval before continuing with the test.
 
 ## Why Gmail is deferred
 

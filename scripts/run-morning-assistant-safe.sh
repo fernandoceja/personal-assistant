@@ -6,6 +6,9 @@ PROMPT_CHECK_IN="$ROOT_DIR/prompts/morning-check-in.md"
 PROMPT_AI_NEWS="$ROOT_DIR/prompts/morning-ai-briefing-phase-1.md"
 BRIEFINGS_DIR="$ROOT_DIR/briefings"
 HERMES_KNOWN_PATH="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.local/bin/hermes"
+GOOGLE_HERMES_VENV_PYTHON="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/hermes-agent/venv/bin/python3"
+GOOGLE_HERMES_HOME="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes"
+GOOGLE_API_SCRIPT="$GOOGLE_HERMES_HOME/skills/productivity/google-workspace/scripts/google_api.py"
 
 MODE="full-safe"
 DRY_RUN=1
@@ -16,10 +19,11 @@ usage() {
 Usage: scripts/run-morning-assistant-safe.sh [--dry-run] [--execute] [--mode MODE]
 
 Modes:
-  check-in        Assemble the morning check-in prompt.
-  ai-news         Assemble the public AI news prompt.
-  calendar-local  Read Apple Calendar/iCalendar events for today and tomorrow only.
-  full-safe       Combine check-in, AI news, local calendar, and Google Calendar placeholder.
+  check-in                  Assemble the morning check-in prompt.
+  ai-news                   Assemble the public AI news prompt.
+  calendar-local            Read Apple Calendar/iCalendar events for today and tomorrow only.
+  calendar-google-readonly  Run an explicit live Google Calendar readonly safe-list diagnostic.
+  full-safe                 Combine check-in, AI news, local calendar, and Google Calendar placeholder.
 
 Defaults:
   --mode full-safe
@@ -60,7 +64,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$MODE" in
-  check-in|ai-news|calendar-local|full-safe) ;;
+  check-in|ai-news|calendar-local|calendar-google-readonly|full-safe) ;;
   *)
     echo "ERROR: Unsupported mode: $MODE" >&2
     usage >&2
@@ -273,6 +277,55 @@ APPLESCRIPT
   fi
 }
 
+write_calendar_google_readonly() {
+  {
+    echo
+    echo "## Google Calendar Readonly Diagnostics"
+    echo
+    echo "Scope: live Google Calendar readonly safe-list diagnostic only."
+    echo "Exact command: HERMES_HOME=\"$GOOGLE_HERMES_HOME\" \"$GOOGLE_HERMES_VENV_PYTHON\" \"$GOOGLE_API_SCRIPT\" calendar safe-list --max 25"
+    echo "Expected safe fields only: summary, start, end, location."
+    echo "Excluded fields: descriptions, attendees, guests, URLs, meeting links, attachments, conference data, reminders, creator/organizer metadata."
+    echo "Credential safety: credential, token, and client secret contents must never be printed."
+    echo
+  } >> "$output_file"
+
+  if [[ ! -f "$GOOGLE_API_SCRIPT" ]]; then
+    echo "Result: failure — Google API script not found at expected path." >> "$output_file"
+    return 0
+  fi
+
+  if [[ ! -x "$GOOGLE_HERMES_VENV_PYTHON" ]]; then
+    echo "Result: failure — Hermes test venv Python not found or not executable at expected path." >> "$output_file"
+    return 0
+  fi
+
+  if [[ ! -f "$GOOGLE_HERMES_HOME/google_token.json" ]]; then
+    echo "Result: failure — google_token.json not found under GOOGLE_HERMES_HOME." >> "$output_file"
+    return 0
+  fi
+
+  local google_output=""
+  local status=0
+  google_output="$(HERMES_HOME="$GOOGLE_HERMES_HOME" "$GOOGLE_HERMES_VENV_PYTHON" "$GOOGLE_API_SCRIPT" calendar safe-list --max 25 2>&1)" || status=$?
+
+  if [[ $status -ne 0 ]]; then
+    {
+      echo "Result: failure — Google Calendar readonly safe-list exited with status $status."
+      echo
+      echo "Captured stdout/stderr:"
+      echo "$google_output"
+    } >> "$output_file"
+  else
+    {
+      echo "Result: success — Google Calendar readonly safe-list completed."
+      echo
+      echo "Captured stdout/stderr:"
+      echo "$google_output"
+    } >> "$output_file"
+  fi
+}
+
 write_google_placeholder() {
   {
     echo
@@ -314,6 +367,9 @@ case "$MODE" in
   calendar-local)
     write_calendar_local
     write_google_placeholder
+    ;;
+  calendar-google-readonly)
+    write_calendar_google_readonly
     ;;
   full-safe)
     append_prompt_file "Morning Check-in Prompt" "$PROMPT_CHECK_IN"
