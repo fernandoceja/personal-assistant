@@ -23,7 +23,7 @@ Modes:
   ai-news                   Assemble the public AI news prompt.
   calendar-local            Read Apple Calendar/iCalendar events for today and tomorrow only.
   calendar-google-readonly  Run an explicit live Google Calendar readonly safe-list diagnostic.
-  full-safe                 Combine check-in, AI news, local calendar, and Google Calendar placeholder.
+  full-safe                 Combine check-in, AI news, local calendar, and Google Calendar readonly diagnostics.
 
 Defaults:
   --mode full-safe
@@ -376,7 +376,7 @@ case "$MODE" in
     append_prompt_file "Public AI News Prompt" "$PROMPT_AI_NEWS"
     write_ai_news_note
     write_calendar_local
-    write_google_placeholder
+    write_calendar_google_readonly
     ;;
 esac
 

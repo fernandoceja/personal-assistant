@@ -15,6 +15,7 @@ This document describes `scripts/run-morning-assistant-safe.sh`, the manual-firs
 - Detects Codex CLI with `command -v codex`.
 - Detects the known Hermes test CLI path at `/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.local/bin/hermes`.
 - Reads local Apple Calendar/iCalendar data in read-only mode for today and tomorrow.
+- `full-safe` includes Google Calendar readonly diagnostics after local Apple Calendar diagnostics and before backend result output.
 - Uses existing prompt files:
   - `prompts/morning-check-in.md`
   - `prompts/morning-ai-briefing-phase-1.md`
@@ -36,6 +37,8 @@ This document describes `scripts/run-morning-assistant-safe.sh`, the manual-firs
 ## Dry-run mode
 
 Dry-run is the default safe behavior. It assembles the selected prompt/briefing content and saves it under `briefings/` without calling Codex or any fallback model backend.
+
+Important: `full-safe` now includes Google Calendar readonly diagnostics. That means `scripts/run-morning-assistant-safe.sh --dry-run --mode full-safe` still performs a live readonly Google Calendar event read. It does not call Codex, but the Google Calendar readonly diagnostic is live and requires explicit approval before each test run.
 
 Run the default full safe dry run:
 
@@ -82,6 +85,8 @@ Full safe mode:
 ```bash
 scripts/run-morning-assistant-safe.sh --dry-run --mode full-safe
 ```
+
+This mode includes local Apple Calendar diagnostics and then Google Calendar readonly diagnostics before the backend result section. Even with `--dry-run`, it performs a live readonly Google Calendar event read.
 
 If Codex CLI is installed and you explicitly want to run the assembled prompt through Codex:
 
@@ -137,7 +142,9 @@ If Calendar.app permission is denied, `osascript` is unavailable, or a preferred
 
 ## Google Calendar readonly diagnostic behavior
 
-The `calendar-google-readonly` mode is an explicit, separate diagnostic mode. It is not wired into `full-safe`.
+The Google Calendar readonly diagnostic is available in the explicit `calendar-google-readonly` mode and is also included in `full-safe` after `write_calendar_local` and before backend result output.
+
+Local Apple Calendar diagnostics and Google Calendar readonly diagnostics are separate sections. Apple Calendar uses local Calendar.app/`osascript` reads; Google Calendar uses the Google Workspace readonly safe-list command below.
 
 It uses the Hermes Google Workspace skill from:
 
@@ -172,13 +179,14 @@ Safety boundary:
 
 - No Gmail access.
 - No Google Calendar writes, event creation, event edits, deletions, invitations, RSVP changes, or reminder changes.
+- No email writes.
 - No cron jobs, LaunchAgents, schedules, or recurring automation.
 - No iMessage sends.
 - No memory writes.
 - No credential, token, or client secret modifications.
 - No credential, token, or client secret contents should be printed.
 
-Running this mode performs a live readonly event read and requires separate explicit approval before continuing with the test.
+Running `calendar-google-readonly` or `full-safe` performs a live readonly Google Calendar event read, even with `--dry-run`, and requires separate explicit approval before continuing with the test.
 
 ## Why Gmail is deferred
 
