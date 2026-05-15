@@ -86,6 +86,13 @@ If Codex CLI is missing, `--execute` falls back to dry-run/prompt-only output. I
 
 The `calendar-local` and `full-safe` modes use `osascript` to ask Calendar.app for events from today and tomorrow only.
 
+The local Calendar section now writes diagnostics before event output so failures are explicit instead of vague. It can distinguish:
+
+- Calendar.app permission denied or unavailable
+- preferred calendars not found
+- preferred calendars found but no events today/tomorrow
+- events found successfully
+
 Preferred calendar names:
 
 - Work Schedule
@@ -93,7 +100,14 @@ Preferred calendar names:
 - iCloud
 - Google
 
-Captured fields only:
+Safe diagnostic output:
+
+- local calendar names only
+- preferred calendars found
+- preferred calendars missing
+- result status for the today/tomorrow event lookup
+
+Captured event fields only:
 
 - title/summary
 - start time
@@ -108,7 +122,9 @@ Excluded fields:
 - URLs
 - meeting links
 
-If Calendar.app permission is denied, `osascript` is unavailable, or a preferred calendar is missing, the script writes a clear warning and continues.
+Location safety note: if a location field appears to contain a URL or common meeting-link provider, the runner redacts that location as `[redacted: link or meeting location]` instead of printing the link.
+
+If Calendar.app permission is denied, `osascript` is unavailable, or a preferred calendar is missing, the script writes a clear diagnostic and continues.
 
 ## Why Google Calendar OAuth is deferred
 

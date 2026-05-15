@@ -118,16 +118,17 @@ append_prompt_file() {
 write_calendar_local() {
   {
     echo
-    echo "## Local Apple Calendar Summary"
+    echo "## Local Apple Calendar Diagnostics"
     echo
     echo "Scope: Calendar.app events for today and tomorrow only."
-    echo "Captured fields only: title/summary, start time, end time, location when available, all-day status when available."
+    echo "Diagnostic mode: local calendar names only, then preferred calendar status."
+    echo "Captured event fields only: title/summary, start time, end time, location when available, all-day status when available."
     echo "Excluded fields: notes/descriptions, attendees, URLs, meeting links."
     echo
   } >> "$output_file"
 
   if ! command -v osascript >/dev/null 2>&1; then
-    echo "WARNING: osascript not found; local Apple Calendar summary skipped." >> "$output_file"
+    echo "Permission/status: unavailable — osascript not found; local Apple Calendar diagnostics skipped." >> "$output_file"
     return 0
   fi
 
@@ -139,22 +140,58 @@ set startDate to current date
 set time of startDate to 0
 set endDate to startDate + (2 * days)
 set outputLines to {}
+set calendarNameLines to {}
+set foundPreferredLines to {}
+set missingPreferredLines to {}
+set eventLines to {}
+set foundPreferredCount to 0
+set eventCount to 0
+
+on appendLine(theList, theLine)
+  set end of theList to theLine
+  return theList
+end appendLine
+
+on redactUnsafeLocation(locationText)
+  set safeLocation to locationText as text
+  if safeLocation is "" then return ""
+  set lowerLocation to do shell script "printf %s " & quoted form of safeLocation & " | tr '[:upper:]' '[:lower:]'"
+  if lowerLocation contains "http://" then return "[redacted: link or meeting location]"
+  if lowerLocation contains "https://" then return "[redacted: link or meeting location]"
+  if lowerLocation contains "zoom.us" then return "[redacted: link or meeting location]"
+  if lowerLocation contains "meet.google" then return "[redacted: link or meeting location]"
+  if lowerLocation contains "teams.microsoft" then return "[redacted: link or meeting location]"
+  if lowerLocation contains "webex" then return "[redacted: link or meeting location]"
+  return safeLocation
+end redactUnsafeLocation
 
 try
   tell application "Calendar"
-    repeat with calendarName in preferredCalendarNames
-      try
-        set targetCalendar to calendar (calendarName as text)
+    set allCalendarNames to name of every calendar
+    if (count of allCalendarNames) is 0 then
+      set calendarNameLines to my appendLine(calendarNameLines, "- [none returned]")
+    else
+      repeat with calendarName in allCalendarNames
+        set calendarNameLines to my appendLine(calendarNameLines, "- " & (calendarName as text))
+      end repeat
+    end if
+
+    repeat with preferredCalendarName in preferredCalendarNames
+      set preferredName to preferredCalendarName as text
+      if allCalendarNames contains preferredName then
+        set foundPreferredCount to foundPreferredCount + 1
+        set foundPreferredLines to my appendLine(foundPreferredLines, "- " & preferredName)
+        set targetCalendar to calendar preferredName
         set eventList to every event of targetCalendar whose start date is greater than or equal to startDate and start date is less than endDate
         if (count of eventList) > 0 then
-          set end of outputLines to "Calendar: " & (calendarName as text)
+          set eventLines to my appendLine(eventLines, "Calendar: " & preferredName)
           repeat with calendarEvent in eventList
             set eventTitle to summary of calendarEvent
             set eventStart to start date of calendarEvent
             set eventEnd to end date of calendarEvent
             set eventLocation to ""
             try
-              set eventLocation to location of calendarEvent
+              set eventLocation to my redactUnsafeLocation(location of calendarEvent)
             end try
             set eventAllDay to "unknown"
             try
@@ -162,32 +199,73 @@ try
             end try
             set lineText to "- " & eventTitle & " | start: " & (eventStart as text) & " | end: " & (eventEnd as text) & " | all-day: " & eventAllDay
             if eventLocation is not "" then set lineText to lineText & " | location: " & eventLocation
-            set end of outputLines to lineText
+            set eventLines to my appendLine(eventLines, lineText)
+            set eventCount to eventCount + 1
           end repeat
         end if
-      on error
-        -- Missing calendars are expected; continue safely.
-      end try
+      else
+        set missingPreferredLines to my appendLine(missingPreferredLines, "- " & preferredName)
+      end if
     end repeat
   end tell
 on error errMsg number errNum
-  return "WARNING: Unable to read Calendar.app events. Calendar permission may be denied or Calendar.app may be unavailable. " & errMsg & " (" & errNum & ")"
+  if errNum is -1743 then
+    return "Permission/status: denied — Calendar.app automation access is not allowed. Grant Terminal/iTerm/agent access in System Settings > Privacy & Security > Automation/Calendars, then rerun."
+  else
+    return "Permission/status: unavailable — Unable to read Calendar.app. " & errMsg & " (" & errNum & ")"
+  end if
 end try
 
-if (count of outputLines) is 0 then
-  return "No events found in preferred local calendars for today/tomorrow, or preferred calendars were unavailable."
+set outputLines to my appendLine(outputLines, "Permission/status: granted — Calendar.app read completed.")
+set outputLines to my appendLine(outputLines, "Window: today and tomorrow only.")
+set outputLines to my appendLine(outputLines, "")
+set outputLines to my appendLine(outputLines, "Local calendar names:")
+repeat with oneLine in calendarNameLines
+  set outputLines to my appendLine(outputLines, oneLine as text)
+end repeat
+set outputLines to my appendLine(outputLines, "")
+set outputLines to my appendLine(outputLines, "Preferred calendars found:")
+if (count of foundPreferredLines) is 0 then
+  set outputLines to my appendLine(outputLines, "- [none]")
 else
-  set AppleScript's text item delimiters to linefeed
-  set joinedOutput to outputLines as text
-  set AppleScript's text item delimiters to ""
-  return joinedOutput
+  repeat with oneLine in foundPreferredLines
+    set outputLines to my appendLine(outputLines, oneLine as text)
+  end repeat
 end if
+set outputLines to my appendLine(outputLines, "")
+set outputLines to my appendLine(outputLines, "Preferred calendars missing:")
+if (count of missingPreferredLines) is 0 then
+  set outputLines to my appendLine(outputLines, "- [none]")
+else
+  repeat with oneLine in missingPreferredLines
+    set outputLines to my appendLine(outputLines, oneLine as text)
+  end repeat
+end if
+set outputLines to my appendLine(outputLines, "")
+
+if foundPreferredCount is 0 then
+  set outputLines to my appendLine(outputLines, "Result: preferred calendars not found — no event lookup was possible for the configured preferred names.")
+else if eventCount is 0 then
+  set outputLines to my appendLine(outputLines, "Result: preferred calendars found, but no events were found for today/tomorrow.")
+else
+  set outputLines to my appendLine(outputLines, "Result: events found successfully.")
+  set outputLines to my appendLine(outputLines, "")
+  set outputLines to my appendLine(outputLines, "Events:")
+  repeat with oneLine in eventLines
+    set outputLines to my appendLine(outputLines, oneLine as text)
+  end repeat
+end if
+
+set AppleScript's text item delimiters to linefeed
+set joinedOutput to outputLines as text
+set AppleScript's text item delimiters to ""
+return joinedOutput
 APPLESCRIPT
 )" || status=$?
 
   if [[ $status -ne 0 ]]; then
     {
-      echo "WARNING: Unable to read Calendar.app events. Calendar permission may be denied or Calendar.app may be unavailable."
+      echo "Permission/status: unavailable — osascript exited with status $status."
       echo "$calendar_output"
     } >> "$output_file"
   else
