@@ -17,7 +17,7 @@ The generated `briefings/YYYY-MM-DD-HH-safe.md` file is an assembled briefing in
 - Detects Codex CLI with `command -v codex`.
 - Detects the known Hermes test CLI path at `/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.local/bin/hermes`.
 - Reads local Apple Calendar/iCalendar data in read-only mode for today and tomorrow.
-- `full-safe` includes Google Calendar readonly diagnostics after local Apple Calendar diagnostics and before backend result output.
+- `full-safe` is non-live by default. It includes Google Calendar readonly diagnostics only when the run is explicitly opted in with `--allow-live-google-calendar`.
 - Uses existing prompt files:
   - `prompts/safe-briefing-output-format.md`
   - `prompts/morning-check-in.md`
@@ -48,18 +48,32 @@ Dry-run files clearly separate:
 - diagnostics
 - backend result, which remains empty unless an explicit backend formatter is used
 
-Important: `full-safe` now includes Google Calendar readonly diagnostics. That means `scripts/run-morning-assistant-safe.sh --dry-run --mode full-safe` still performs a live readonly Google Calendar event read. It does not call Codex, but the Google Calendar readonly diagnostic is live and requires explicit approval before each test run.
+Important: default `full-safe` is non-live. The wrapper command below does not perform a live Google Calendar read unless the explicit live-source gate is provided:
+
+```bash
+bash run-briefing.sh --slot morning --mode full-safe
+```
+
+Google Calendar readonly access requires explicit opt-in for that run:
+
+```bash
+bash run-briefing.sh --slot morning --mode full-safe --allow-live-google-calendar
+```
+
+Google Calendar writes are never allowed. Gmail is not implemented yet and must not be accessed by the safe runner.
 
 ## Final briefing format contract
 
-The desired final briefing uses six top-level sections:
+The desired final briefing preserves these six top-level sections exactly:
 
-1. Executive Summary
-2. Priority Now
-3. Review With Me
-4. Calendar Watch
-5. Low Priority
-6. Ignore/Suspicious
+```markdown
+## Executive Summary
+## Priority Now
+## Review With Me
+## Calendar Watch
+## Low Priority
+## Ignore/Suspicious
+```
 
 The contract lives in `prompts/safe-briefing-output-format.md` and is included in safe runner output as the formatting target for any explicit backend formatter.
 
@@ -109,19 +123,15 @@ scripts/format-safe-briefing.sh --input briefings/YYYY-MM-DD-HH-safe.md --execut
 
 When `--execute` is used, the formatter calls Codex CLI only. If Codex CLI is missing, it fails safely. Final model output is written to the derived `*-final.md` path and is not appended to the source packet.
 
-Formatting can be validated without live calendar reads by using a source packet created from non-live modes such as `check-in` or `ai-news`. `full-safe` remains live-read gated because it includes Google Calendar readonly diagnostics.
+Formatting can be validated without live calendar reads by using a source packet created from non-live modes such as `check-in`, `ai-news`, or default `full-safe`. Google Calendar readonly content appears only when a run is explicitly opted in with `--allow-live-google-calendar`.
 
-Run the default full safe dry run:
-
-```bash
-scripts/run-morning-assistant-safe.sh --dry-run
-```
-
-Equivalent default mode:
+Run the default full safe briefing through the wrapper:
 
 ```bash
-scripts/run-morning-assistant-safe.sh --dry-run --mode full-safe
+bash run-briefing.sh --slot morning --mode full-safe
 ```
+
+Equivalent default safety model: default `full-safe` is non-live. Add `--allow-live-google-calendar` only when explicitly approving Google Calendar readonly access.
 
 ## Run each mode
 
@@ -143,23 +153,31 @@ Local Apple Calendar/iCalendar summary only:
 scripts/run-morning-assistant-safe.sh --dry-run --mode calendar-local
 ```
 
-Google Calendar readonly diagnostic only:
+Google Calendar readonly diagnostic only, explicit live opt-in required:
 
 ```bash
-scripts/run-morning-assistant-safe.sh --dry-run --mode calendar-google-readonly
+bash run-briefing.sh --slot morning --mode calendar-google-readonly --allow-live-google-calendar
 ```
 
-This mode performs a live readonly Google Calendar event read and requires separate explicit approval before each test run.
+This mode performs a live readonly Google Calendar event read only when the explicit `--allow-live-google-calendar` gate is present. It never writes Google Calendar events.
 
-Full safe mode:
+Default full safe mode, non-live:
 
 ```bash
-scripts/run-morning-assistant-safe.sh --dry-run --mode full-safe
+bash run-briefing.sh --slot morning --mode full-safe
 ```
 
-This mode includes local Apple Calendar diagnostics and then Google Calendar readonly diagnostics before the backend result section. Even with `--dry-run`, it performs a live readonly Google Calendar event read.
+This mode does not perform Google Calendar live access by default.
 
-If Codex CLI is installed and you explicitly want to run the assembled prompt through Codex:
+Full safe mode with explicit Google Calendar readonly opt-in:
+
+```bash
+bash run-briefing.sh --slot morning --mode full-safe --allow-live-google-calendar
+```
+
+With that flag, the runner may include Google Calendar readonly diagnostics before the backend result section. Google Calendar writes are never allowed.
+
+If Codex CLI is installed and you explicitly want to run the assembled prompt through Codex, keep the same live-source rule: default `full-safe` is non-live, and Google Calendar readonly requires `--allow-live-google-calendar`.
 
 ```bash
 scripts/run-morning-assistant-safe.sh --execute --mode full-safe
@@ -213,7 +231,16 @@ If Calendar.app permission is denied, `osascript` is unavailable, or a preferred
 
 ## Google Calendar readonly diagnostic behavior
 
-The Google Calendar readonly diagnostic is available in the explicit `calendar-google-readonly` mode and is also included in `full-safe` after `write_calendar_local` and before backend result output.
+The Google Calendar readonly diagnostic is available only when the run is explicitly opted in with `--allow-live-google-calendar`. Default `full-safe` is non-live and does not access Google Calendar.
+
+Examples:
+
+```bash
+bash run-briefing.sh --slot morning --mode full-safe
+bash run-briefing.sh --slot morning --mode full-safe --allow-live-google-calendar
+```
+
+The first command is non-live. The second command opts in to Google Calendar readonly access for that run only.
 
 Local Apple Calendar diagnostics and Google Calendar readonly diagnostics are separate sections. Apple Calendar uses local Calendar.app/`osascript` reads; Google Calendar uses the Google Workspace readonly safe-list command below.
 
@@ -248,7 +275,8 @@ Excluded fields:
 
 Safety boundary:
 
-- No Gmail access.
+- No Gmail access. Gmail is not implemented yet and must not be accessed.
+- Future Gmail readonly access should require an explicit `--allow-live-gmail-readonly` gate before any Gmail read is allowed.
 - No Google Calendar writes, event creation, event edits, deletions, invitations, RSVP changes, or reminder changes.
 - No email writes.
 - No cron jobs, LaunchAgents, schedules, or recurring automation.
@@ -257,11 +285,17 @@ Safety boundary:
 - No credential, token, or client secret modifications.
 - No credential, token, or client secret contents should be printed.
 
-Running `calendar-google-readonly` or `full-safe` performs a live readonly Google Calendar event read, even with `--dry-run`, and requires separate explicit approval before continuing with the test.
+Running default `full-safe` is non-live. Running with `--allow-live-google-calendar` performs a live readonly Google Calendar event read and requires separate explicit approval before continuing with the test.
 
 ## Why Gmail is deferred
 
-Gmail is deferred because the current safe workflow is calendar/check-in/public-news only. Email introduces private content, triage risk, and accidental mutation risk. This runner does not authenticate to Gmail, read Gmail, modify Gmail, or summarize Gmail.
+Gmail is not implemented yet. It is deferred because email introduces private content, triage risk, and accidental mutation risk. This runner does not authenticate to Gmail, read Gmail, modify Gmail, or summarize Gmail.
+
+Future Gmail readonly behavior should require an explicit opt-in gate before any Gmail read is allowed:
+
+```bash
+--allow-live-gmail-readonly
+```
 
 ## How Codex CLI is detected
 
@@ -299,14 +333,14 @@ command -v codex
 codex --version
 ```
 
-7. Test prompt-only behavior first:
+7. Test prompt-only behavior first through the wrapper:
 
 ```bash
-scripts/run-morning-assistant-safe.sh --dry-run --mode full-safe
+bash run-briefing.sh --slot morning --mode full-safe
 ```
 
-8. Only then test explicit execution:
+8. Only then test explicit execution, still non-live unless the Google Calendar readonly gate is explicitly included:
 
 ```bash
-scripts/run-morning-assistant-safe.sh --execute --mode full-safe
+bash run-briefing.sh --slot morning --mode full-safe --execute
 ```
