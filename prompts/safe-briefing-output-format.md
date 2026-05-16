@@ -6,6 +6,19 @@ Use this contract when turning safe runner source material into a concise person
 
 ## Final Briefing Sections
 
+The final briefing must always include exactly these six top-level headings, rendered as `## Heading Name`, in this exact order:
+
+1. `## Executive Summary`
+2. `## Priority Now`
+3. `## Review With Me`
+4. `## Calendar Watch`
+5. `## Low Priority`
+6. `## Ignore/Suspicious`
+
+Do not omit any required heading. If a section has no source-backed items, include the placeholder: `No source-backed items in this packet.`
+
+For `## Ignore/Suspicious`, when no email or message source was approved, include the placeholder: `No email or message source was approved for this packet.`
+
 ### Executive Summary
 - Include 3 bullets max.
 - Use only the highest-impact items supported by source material.
@@ -32,12 +45,13 @@ Use this contract when turning safe runner source material into a concise person
 
 ### Ignore/Suspicious
 - Use for spam, phishing, fake billing, or clear noise when an email/message source exists.
-- Until Gmail or message sources are approved, omit this section or write "No source available yet" only if that helps clarify the gap.
+- Until Gmail or message sources are approved, use the required placeholder instead of inventing findings.
 
-## Omission Rules
+## Required Empty Section Rules
 
-- Omit sections that have no source data.
-- If a missing section could confuse the reader, write "No source available yet" instead of inventing content.
+- Do not omit sections that have no source data.
+- Use `No source-backed items in this packet.` for empty sections.
+- Use `No email or message source was approved for this packet.` for Ignore/Suspicious when no email or message source was approved.
 - Keep the final briefing short and scannable.
 
 ## Safety Rules

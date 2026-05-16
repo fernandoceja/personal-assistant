@@ -96,7 +96,7 @@ prompt_path="${OUTPUT_PATH%.md}-formatter-prompt.md"
   echo
   echo "Goal: Convert the source packet below into a final personal-assistant briefing."
   echo
-  echo "Return only the final briefing. Use only these top-level sections when source data supports them:"
+  echo "Return only the final briefing. Always include exactly these six top-level headings as ## headings, in this exact order:"
   echo
   echo "1. Executive Summary"
   echo "2. Priority Now"
@@ -105,9 +105,13 @@ prompt_path="${OUTPUT_PATH%.md}-formatter-prompt.md"
   echo "5. Low Priority"
   echo "6. Ignore/Suspicious"
   echo
+  echo "Required empty-section placeholders:"
+  echo "- If a section has no source-backed items, write: No source-backed items in this packet."
+  echo "- For Ignore/Suspicious with no approved email or message source, write: No email or message source was approved for this packet."
+  echo
   echo "Safety and privacy rules:"
   echo "- Do not invent missing source data."
-  echo "- Omit unavailable sections, or state \"No source available yet\" only when helpful."
+  echo "- Do not omit any of the six required headings."
   echo "- Treat legal, immigration, money, work, school, and deadline uncertainty as Review With Me."
   echo "- Keep output short and scannable."
   echo "- Do not include secrets, tokens, credentials, OAuth artifacts, or raw debug blocks."
@@ -139,7 +143,7 @@ if ! command -v codex >/dev/null 2>&1; then
   exit 1
 fi
 
-codex < "$prompt_path" > "$OUTPUT_PATH"
+codex exec - --output-last-message "$OUTPUT_PATH" < "$prompt_path"
 
 cat <<SUMMARY
 Safe briefing formatter execution complete.
