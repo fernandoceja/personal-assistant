@@ -2,9 +2,11 @@
 
 This document describes `scripts/run-morning-assistant-safe.sh`, the manual-first replacement path for the morning assistant. It is designed for Codex/Hermes-compatible workflows without using the old Claude-based automation path.
 
+The generated `briefings/YYYY-MM-DD-HH-safe.md` file is an assembled briefing input/source packet unless an explicit backend formatter is used. Dry-run output is not a finished personal-assistant briefing.
+
 ## What it does
 
-- Creates a safe briefing/prompt file at `briefings/YYYY-MM-DD-HH-safe.md`.
+- Creates a safe briefing input/source packet at `briefings/YYYY-MM-DD-HH-safe.md`.
 - Supports these modes:
   - `check-in`
   - `ai-news`
@@ -17,6 +19,7 @@ This document describes `scripts/run-morning-assistant-safe.sh`, the manual-firs
 - Reads local Apple Calendar/iCalendar data in read-only mode for today and tomorrow.
 - `full-safe` includes Google Calendar readonly diagnostics after local Apple Calendar diagnostics and before backend result output.
 - Uses existing prompt files:
+  - `prompts/safe-briefing-output-format.md`
   - `prompts/morning-check-in.md`
   - `prompts/morning-ai-briefing-phase-1.md`
 
@@ -36,9 +39,47 @@ This document describes `scripts/run-morning-assistant-safe.sh`, the manual-firs
 
 ## Dry-run mode
 
-Dry-run is the default safe behavior. It assembles the selected prompt/briefing content and saves it under `briefings/` without calling Codex or any fallback model backend.
+Dry-run is the default safe behavior. It assembles the selected prompt/briefing source material and saves it under `briefings/` without calling Codex or any fallback model backend.
+
+Dry-run files clearly separate:
+
+- the final desired briefing format contract
+- source material prompts
+- diagnostics
+- backend result, which remains empty unless an explicit backend formatter is used
 
 Important: `full-safe` now includes Google Calendar readonly diagnostics. That means `scripts/run-morning-assistant-safe.sh --dry-run --mode full-safe` still performs a live readonly Google Calendar event read. It does not call Codex, but the Google Calendar readonly diagnostic is live and requires explicit approval before each test run.
+
+## Final briefing format contract
+
+The desired final briefing uses six top-level sections:
+
+1. Executive Summary
+2. Priority Now
+3. Review With Me
+4. Calendar Watch
+5. Low Priority
+6. Ignore/Suspicious
+
+The contract lives in `prompts/safe-briefing-output-format.md` and is included in safe runner output as the formatting target for any explicit backend formatter.
+
+Key rules:
+
+- Executive Summary is limited to 3 bullets max.
+- Priority Now is for urgent or deadline-driven items only and should include Source, Sender/Event, Subject, Timing, Importance, and Next Action.
+- Review With Me is for important but non-urgent items or uncertain legal, immigration, money, school, or work-deadline items.
+- Calendar Watch summarizes today/tomorrow calendar source material and highlights work, school, bills, and conflicts when source data supports them.
+- Low Priority groups non-urgent items.
+- Ignore/Suspicious is omitted or marked as no source available until Gmail or message sources are explicitly approved.
+- Sections with no source data should be omitted unless a short "No source available yet" note prevents confusion.
+- The formatter must not invent deadlines, senders, bills, email findings, or calendar facts.
+
+Formatting changes can be validated without live calendar reads by running non-live modes such as:
+
+```bash
+scripts/run-morning-assistant-safe.sh --dry-run --mode check-in
+scripts/run-morning-assistant-safe.sh --dry-run --mode ai-news
+```
 
 Run the default full safe dry run:
 

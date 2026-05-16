@@ -6,6 +6,8 @@ This workflow is a lightweight morning alignment check-in for Fernando. Its job 
 
 The workflow should act like a strategic executive assistant: concise, practical, read-only by default, and focused on what matters today.
 
+When this prompt is included in a safe runner output file, treat it as source material for the final safe briefing format contract, not as a finished briefing by itself.
+
 ## Morning Question
 
 “Good morning, Fernando. What is your one big priority today — the thing that would make today feel successful if it got done?”
@@ -20,6 +22,8 @@ After Fernando answers, respond using this exact structure:
 4. How Hermes can help
 5. One improvement suggestion
 6. One concrete next action
+
+If this check-in is being merged into a broader safe briefing, map source-backed urgent items into `Priority Now`, uncertain or important items into `Review With Me`, and omit unavailable sections rather than inventing content.
 
 ## Response Guidance
 

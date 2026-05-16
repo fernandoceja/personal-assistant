@@ -6,6 +6,8 @@ Create a public-source-only Morning AI Briefing that identifies meaningful AI de
 
 The workflow must use only public information sources. It must not access private accounts, credentials, inboxes, calendars, messages, files, or personal data.
 
+When this prompt is included in a safe runner output file, treat it as source material for the final safe briefing format contract, not as a completed personal-assistant briefing by itself.
+
 ## Approved Source Whitelist
 
 Use only public sources such as:
@@ -99,6 +101,8 @@ Hype Filter
 Morning Priority Question
 
 One Concrete Next Action
+
+When this public AI briefing is merged into the broader safe briefing format, place source-backed urgent items in `Priority Now`, important but non-urgent items in `Review With Me`, general non-urgent AI updates in `Low Priority`, and hype or unverifiable claims in `Ignore/Suspicious` only when that label is supported by the source material.
 
 ## Section Guidance
 

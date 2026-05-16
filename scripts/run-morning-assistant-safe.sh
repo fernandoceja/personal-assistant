@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROMPT_CHECK_IN="$ROOT_DIR/prompts/morning-check-in.md"
 PROMPT_AI_NEWS="$ROOT_DIR/prompts/morning-ai-briefing-phase-1.md"
+PROMPT_SAFE_FORMAT="$ROOT_DIR/prompts/safe-briefing-output-format.md"
 BRIEFINGS_DIR="$ROOT_DIR/briefings"
 HERMES_KNOWN_PATH="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.local/bin/hermes"
 GOOGLE_HERMES_VENV_PYTHON="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/hermes-agent/venv/bin/python3"
@@ -114,8 +115,22 @@ append_prompt_file() {
     echo "## $label"
     echo
     echo "Source: ${path#$ROOT_DIR/}"
+    echo "Role: source material for a formatter; not a finished briefing section."
     echo
     cat "$path"
+  } >> "$output_file"
+}
+
+append_format_contract() {
+  require_file "$PROMPT_SAFE_FORMAT"
+  {
+    echo
+    echo "## Final Desired Briefing Format Contract"
+    echo
+    echo "Source: ${PROMPT_SAFE_FORMAT#$ROOT_DIR/}"
+    echo "Role: formatting contract for any explicit backend formatter."
+    echo
+    cat "$PROMPT_SAFE_FORMAT"
   } >> "$output_file"
 }
 
@@ -124,6 +139,7 @@ write_calendar_local() {
     echo
     echo "## Local Apple Calendar Diagnostics"
     echo
+    echo "Role: diagnostics/source material for Calendar Watch; not a finished briefing section."
     echo "Scope: Calendar.app events for today and tomorrow only."
     echo "Diagnostic mode: local calendar names only, then preferred calendar status."
     echo "Captured event fields only: title/summary, start time, end time, location when available, all-day status when available."
@@ -282,6 +298,7 @@ write_calendar_google_readonly() {
     echo
     echo "## Google Calendar Readonly Diagnostics"
     echo
+    echo "Role: live readonly diagnostics/source material for Calendar Watch; not a finished briefing section."
     echo "Scope: live Google Calendar readonly safe-list diagnostic only."
     echo "Exact command: HERMES_HOME=\"$GOOGLE_HERMES_HOME\" \"$GOOGLE_HERMES_VENV_PYTHON\" \"$GOOGLE_API_SCRIPT\" calendar safe-list --max 25"
     echo "Expected safe fields only: summary, start, end, location."
@@ -331,6 +348,7 @@ write_google_placeholder() {
     echo
     echo "## Google Calendar Placeholder"
     echo
+    echo "Role: diagnostics/source material; not a finished briefing section."
     echo "Google Calendar OAuth is not implemented in this safe runner. Future support must use the preserved calendar.readonly patch under docs/patches/google-workspace-calendar-readonly/ plus an explicit calendar safe-list. No broad calendar scope is used here."
   } >> "$output_file"
 }
@@ -340,13 +358,16 @@ write_ai_news_note() {
     echo
     echo "## AI News Execution Note"
     echo
+    echo "Role: diagnostics/source material; not a finished briefing section."
     echo "This runner assembles the existing public AI news prompt. If no approved web research backend is configured, treat this as prompt-ready input rather than a completed research briefing."
   } >> "$output_file"
 }
 
 {
-  echo "# Safe Morning Assistant Run — $today_stamp"
+  echo "# Safe Morning Assistant Input Packet — $today_stamp"
   echo
+  echo "Packet type: assembled briefing input/source packet."
+  echo "Final briefing status: not a finished briefing unless an explicit backend formatter writes content under Backend Result."
   echo "Mode: $MODE"
   echo "Dry run: $DRY_RUN"
   echo "Codex CLI: ${codex_path:-not found}"
@@ -358,22 +379,27 @@ write_ai_news_note() {
 
 case "$MODE" in
   check-in)
-    append_prompt_file "Morning Check-in Prompt" "$PROMPT_CHECK_IN"
+    append_format_contract
+    append_prompt_file "Source Material - Morning Check-in Prompt" "$PROMPT_CHECK_IN"
     ;;
   ai-news)
-    append_prompt_file "Public AI News Prompt" "$PROMPT_AI_NEWS"
+    append_format_contract
+    append_prompt_file "Source Material - Public AI News Prompt" "$PROMPT_AI_NEWS"
     write_ai_news_note
     ;;
   calendar-local)
+    append_format_contract
     write_calendar_local
     write_google_placeholder
     ;;
   calendar-google-readonly)
+    append_format_contract
     write_calendar_google_readonly
     ;;
   full-safe)
-    append_prompt_file "Morning Check-in Prompt" "$PROMPT_CHECK_IN"
-    append_prompt_file "Public AI News Prompt" "$PROMPT_AI_NEWS"
+    append_format_contract
+    append_prompt_file "Source Material - Morning Check-in Prompt" "$PROMPT_CHECK_IN"
+    append_prompt_file "Source Material - Public AI News Prompt" "$PROMPT_AI_NEWS"
     write_ai_news_note
     write_calendar_local
     write_calendar_google_readonly
@@ -384,11 +410,13 @@ esac
   echo
   echo "## Backend Result"
   echo
+  echo "Role: final formatted briefing only when an explicit backend formatter is used."
+  echo
 } >> "$output_file"
 
 if [[ $DRY_RUN -eq 1 ]]; then
   {
-    echo "Dry-run/prompt-only mode. No execution backend was called."
+    echo "Dry-run/input-packet mode. No execution backend was called; this file is source material, not a finished briefing."
     if [[ $EXECUTE_REQUESTED -eq 1 && -z "$codex_path" ]]; then
       echo "Codex CLI not found; saved assembled prompt instead."
     fi
