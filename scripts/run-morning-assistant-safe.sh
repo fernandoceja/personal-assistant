@@ -14,21 +14,25 @@ GOOGLE_API_SCRIPT="$GOOGLE_HERMES_HOME/skills/productivity/google-workspace/scri
 MODE="full-safe"
 DRY_RUN=1
 EXECUTE_REQUESTED=0
+ALLOW_LIVE_GOOGLE_CALENDAR=0
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/run-morning-assistant-safe.sh [--dry-run] [--execute] [--mode MODE]
+Usage: scripts/run-morning-assistant-safe.sh [--dry-run] [--execute] [--mode MODE] [--allow-live-google-calendar]
 
 Modes:
   check-in                  Assemble the morning check-in prompt.
   ai-news                   Assemble the public AI news prompt.
   calendar-local            Read Apple Calendar/iCalendar events for today and tomorrow only.
   calendar-google-readonly  Run an explicit live Google Calendar readonly safe-list diagnostic.
-  full-safe                 Combine check-in, AI news, local calendar, and Google Calendar readonly diagnostics.
+                            Requires --allow-live-google-calendar.
+  full-safe                 Combine check-in, AI news, local calendar, and a non-live Google Calendar placeholder.
+                            Add --allow-live-google-calendar to include Google Calendar readonly diagnostics.
 
 Defaults:
   --mode full-safe
   --dry-run behavior unless --execute is provided and Codex CLI is available.
+  Google Calendar live data is not accessed unless --allow-live-google-calendar is present.
 USAGE
 }
 
@@ -52,6 +56,10 @@ while [[ $# -gt 0 ]]; do
       MODE="$2"
       shift 2
       ;;
+    --allow-live-google-calendar)
+      ALLOW_LIVE_GOOGLE_CALENDAR=1
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -72,6 +80,12 @@ case "$MODE" in
     exit 2
     ;;
 esac
+
+if [[ "$MODE" == "calendar-google-readonly" && "$ALLOW_LIVE_GOOGLE_CALENDAR" -ne 1 ]]; then
+  echo "ERROR: calendar-google-readonly requires --allow-live-google-calendar." >&2
+  usage >&2
+  exit 2
+fi
 
 require_file() {
   local path="$1"
@@ -346,10 +360,11 @@ write_calendar_google_readonly() {
 write_google_placeholder() {
   {
     echo
-    echo "## Google Calendar Placeholder"
+    echo "## Google Calendar Non-Live Placeholder"
     echo
     echo "Role: diagnostics/source material; not a finished briefing section."
-    echo "Google Calendar OAuth is not implemented in this safe runner. Future support must use the preserved calendar.readonly patch under docs/patches/google-workspace-calendar-readonly/ plus an explicit calendar safe-list. No broad calendar scope is used here."
+    echo "Google Calendar live data not accessed. Run with --allow-live-google-calendar to include readonly Google Calendar."
+    echo "No Google Calendar connector, OAuth token check, credential file check, or live API command was run for this section."
   } >> "$output_file"
 }
 
@@ -370,6 +385,7 @@ write_ai_news_note() {
   echo "Final briefing status: not a finished briefing unless an explicit backend formatter writes content under Backend Result."
   echo "Mode: $MODE"
   echo "Dry run: $DRY_RUN"
+  echo "Live Google Calendar allowed: $ALLOW_LIVE_GOOGLE_CALENDAR"
   echo "Codex CLI: ${codex_path:-not found}"
   echo "Codex version: $codex_version"
   echo "Hermes known CLI: ${hermes_path:-not found at known test path}"
@@ -402,7 +418,11 @@ case "$MODE" in
     append_prompt_file "Source Material - Public AI News Prompt" "$PROMPT_AI_NEWS"
     write_ai_news_note
     write_calendar_local
-    write_calendar_google_readonly
+    if [[ "$ALLOW_LIVE_GOOGLE_CALENDAR" -eq 1 ]]; then
+      write_calendar_google_readonly
+    else
+      write_google_placeholder
+    fi
     ;;
 esac
 
@@ -439,6 +459,7 @@ cat <<SUMMARY
 Safe morning assistant runner complete.
 Mode: $MODE
 Dry run: $DRY_RUN
+Live Google Calendar allowed: $ALLOW_LIVE_GOOGLE_CALENDAR
 Output: ${output_file#$ROOT_DIR/}
 Codex CLI: ${codex_path:-not found}
 Hermes known CLI: ${hermes_path:-not found at known test path}

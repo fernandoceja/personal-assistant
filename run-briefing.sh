@@ -8,6 +8,7 @@ CLAUDE_BIN="/Users/fernandoceja/.local/bin/claude"
 LOG_FILE="$PROJECT_DIR/logs/briefing-$(date '+%Y-%m-%d').log"
 SLOT=""
 MODE=""
+ALLOW_LIVE_GOOGLE_CALENDAR=0
 
 cd "$PROJECT_DIR"
 
@@ -21,6 +22,10 @@ while [[ $# -gt 0 ]]; do
       MODE="${2:-}"
       shift 2
       ;;
+    --allow-live-google-calendar)
+      ALLOW_LIVE_GOOGLE_CALENDAR=1
+      shift
+      ;;
     *)
       shift
       ;;
@@ -31,7 +36,12 @@ if [[ "$MODE" == "full-safe" ]]; then
   echo "Safe briefing wrapper started."
   [[ -n "$SLOT" ]] && echo "Slot: $SLOT"
 
-  bash scripts/run-morning-assistant-safe.sh --dry-run --mode full-safe
+  runner_args=(--dry-run --mode full-safe)
+  if [[ "$ALLOW_LIVE_GOOGLE_CALENDAR" -eq 1 ]]; then
+    runner_args+=(--allow-live-google-calendar)
+  fi
+
+  bash scripts/run-morning-assistant-safe.sh "${runner_args[@]}"
 
   latest_safe="$(ls -t briefings/*-safe.md 2>/dev/null | head -n 1)"
   if [[ -z "$latest_safe" ]]; then
@@ -40,7 +50,7 @@ if [[ "$MODE" == "full-safe" ]]; then
   fi
 
   formatter_log="$(mktemp)"
-  if bash scripts/format-safe-briefing.sh --input "$latest_safe" --execute >"$formatter_log" 2>&1; then
+  if bash scripts/format-safe-briefing.sh --input "$latest_safe" >"$formatter_log" 2>&1; then
     formatter_status=0
   else
     formatter_status=$?
@@ -49,12 +59,50 @@ if [[ "$MODE" == "full-safe" ]]; then
 
   latest_final="${latest_safe%-safe.md}-final.md"
 
+  validation_status=0
+  if [[ ! -f "$latest_safe" ]]; then
+    echo "ERROR: Safe packet was not generated: $latest_safe" >&2
+    validation_status=1
+  fi
+  if [[ ! -f "$latest_final" ]]; then
+    echo "ERROR: Final briefing was not generated: $latest_final" >&2
+    validation_status=1
+  fi
+
+  for heading in "Executive Summary" "Priority Now" "Review With Me" "Calendar Watch" "Low Priority" "Ignore/Suspicious"; do
+    if [[ -f "$latest_final" ]] && grep -Fq "## $heading" "$latest_final"; then
+      echo "Heading validation: $heading: Pass"
+    else
+      echo "Heading validation: $heading: Fail" >&2
+      validation_status=1
+    fi
+  done
+
+  if [[ "$ALLOW_LIVE_GOOGLE_CALENDAR" -eq 0 && -f "$latest_safe" ]]; then
+    if grep -Eq 'Google Calendar readonly safe-list|google_api\.py|google_token\.json|calendar safe-list --max|HERMES_HOME=' "$latest_safe"; then
+      echo "ERROR: Default full-safe packet contains live Google Calendar path markers." >&2
+      validation_status=1
+    fi
+    if ! grep -Fq "Google Calendar live data not accessed. Run with --allow-live-google-calendar to include readonly Google Calendar." "$latest_safe"; then
+      echo "ERROR: Default full-safe packet is missing the Google Calendar non-live placeholder." >&2
+      validation_status=1
+    fi
+  fi
+
+  if [[ -f "$latest_safe" ]] && grep -Eiq 'Gmail|iMessage|memory\.md|send msgBody|google_token\.json' "$latest_safe"; then
+    echo "Safety validation note: safe packet contains prohibited-source terms only as static safety/prompt text; no connector call is made by this wrapper."
+  fi
+
   echo "Safe briefing wrapper complete."
   echo "Safe packet: $latest_safe"
   echo "Final briefing: $latest_final"
   echo "Formatter status: $formatter_status"
 
-  exit "$formatter_status"
+  if [[ $formatter_status -ne 0 ]]; then
+    validation_status=$formatter_status
+  fi
+
+  exit "$validation_status"
 fi
 
 echo "=== Briefing run started: $(date '+%Y-%m-%d %H:%M:%S %Z') ===" >> "$LOG_FILE"

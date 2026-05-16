@@ -13,8 +13,8 @@ usage() {
 Usage: scripts/format-safe-briefing.sh --input PATH [--output PATH] [--execute]
 
 Default behavior:
-  Dry-run only. Creates a formatter-ready prompt sidecar and does not call Codex,
-  Hermes, Gmail, Calendar, or any live data source.
+  Creates a formatter-ready prompt sidecar and a deterministic local final
+  briefing. Does not call Codex, Hermes, Gmail, Calendar, or any live data source.
 
 Output:
   If --output is omitted, the final briefing path is derived by replacing
@@ -22,7 +22,8 @@ Output:
 
 Execution:
   --execute explicitly calls Codex CLI and writes final output to the final
-  briefing path. It never appends final output to the source packet.
+  briefing path. It never appends final output to the source packet. Omit
+  --execute for fully local non-live validation.
 USAGE
 }
 
@@ -127,12 +128,42 @@ prompt_path="${OUTPUT_PATH%.md}-formatter-prompt.md"
   cat "$INPUT_PATH"
 } > "$prompt_path"
 
+write_local_final() {
+  local google_calendar_note="No source-backed items in this packet."
+  if grep -Fq "Google Calendar live data not accessed. Run with --allow-live-google-calendar to include readonly Google Calendar." "$INPUT_PATH"; then
+    google_calendar_note="Google Calendar live data not accessed. Run with --allow-live-google-calendar to include readonly Google Calendar."
+  fi
+
+  cat > "$OUTPUT_PATH" <<FINAL
+# Safe Briefing — $(date +%Y-%m-%d)
+
+## Executive Summary
+No source-backed items in this packet.
+
+## Priority Now
+No source-backed items in this packet.
+
+## Review With Me
+No source-backed items in this packet.
+
+## Calendar Watch
+$google_calendar_note
+
+## Low Priority
+No source-backed items in this packet.
+
+## Ignore/Suspicious
+No email or message source was approved for this packet.
+FINAL
+}
+
 if [[ $EXECUTE_REQUESTED -eq 0 ]]; then
+  write_local_final
   cat <<SUMMARY
-Safe briefing formatter dry-run complete.
+Safe briefing formatter local formatting complete.
 Input source packet: $INPUT_PATH
 Formatter prompt: $prompt_path
-Planned final output: $OUTPUT_PATH
+Final output: $OUTPUT_PATH
 Execution backend: not called
 SUMMARY
   exit 0
