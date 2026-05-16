@@ -81,6 +81,36 @@ scripts/run-morning-assistant-safe.sh --dry-run --mode check-in
 scripts/run-morning-assistant-safe.sh --dry-run --mode ai-news
 ```
 
+## Formatting source packets into final briefings
+
+Use `scripts/format-safe-briefing.sh` to turn an existing safe source packet into a formatter-ready prompt, and later, with explicit approval, a final six-section briefing file.
+
+The formatter does not create a new source packet and does not read Gmail, Calendar, iMessage, credentials, or any live data source. It only reads an existing `*-safe.md` source packet and the format contract at `prompts/safe-briefing-output-format.md`.
+
+Source packet and final briefing lifecycle:
+
+- Source packet: `briefings/YYYY-MM-DD-HH-safe.md`
+- Dry-run formatter prompt: `briefings/YYYY-MM-DD-HH-final-formatter-prompt.md`
+- Final formatted briefing, only with `--execute`: `briefings/YYYY-MM-DD-HH-final.md`
+
+Dry-run formatter preview:
+
+```bash
+scripts/format-safe-briefing.sh --input briefings/YYYY-MM-DD-HH-safe.md
+```
+
+This creates a formatter-ready prompt sidecar and reports paths/status only. It does not call Codex or Hermes and does not print final private briefing contents to the terminal.
+
+Explicit backend formatting, only after separate approval:
+
+```bash
+scripts/format-safe-briefing.sh --input briefings/YYYY-MM-DD-HH-safe.md --execute
+```
+
+When `--execute` is used, the formatter calls Codex CLI only. If Codex CLI is missing, it fails safely. Final model output is written to the derived `*-final.md` path and is not appended to the source packet.
+
+Formatting can be validated without live calendar reads by using a source packet created from non-live modes such as `check-in` or `ai-news`. `full-safe` remains live-read gated because it includes Google Calendar readonly diagnostics.
+
 Run the default full safe dry run:
 
 ```bash
