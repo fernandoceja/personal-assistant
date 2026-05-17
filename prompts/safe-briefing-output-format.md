@@ -56,7 +56,10 @@ For `## Ignore/Suspicious`, when no email or message source was approved, includ
 
 ## Safety Rules
 
-- Do not add Gmail findings unless Gmail access was explicitly approved for that run.
+- Do not add Gmail findings unless Gmail access was explicitly approved for that run and Gmail readonly support is implemented.
+- Default full-safe runs include only a non-live Gmail placeholder; do not treat it as email source data.
+- If --allow-live-gmail-readonly is present before implementation, report that Gmail readonly is gated but not implemented and that no Gmail access was performed.
+- No email writes are ever allowed in safe mode: no send, reply, forward, archive, delete, label, or mark-read actions.
 - Do not add iMessage findings unless iMessage access was explicitly approved for that run.
 - Do not add calendar facts beyond the safe fields present in the source packet.
 - Do not create, modify, send, schedule, archive, delete, or persist anything from the briefing.

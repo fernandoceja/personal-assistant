@@ -15,6 +15,7 @@ Usage: scripts/format-safe-briefing.sh --input PATH [--output PATH] [--execute]
 Default behavior:
   Creates a formatter-ready prompt sidecar and a deterministic local final
   briefing. Does not call Codex, Hermes, Gmail, Calendar, or any live data source.
+  Can distinguish Gmail not approved from gated/planned-but-not-implemented source packets.
 
 Output:
   If --output is omitted, the final briefing path is derived by replacing
@@ -166,6 +167,36 @@ calendar_state_summary() {
   printf '%s|%s\n' "$local_state" "$google_state"
 }
 
+gmail_state_summary() {
+  local gmail_state="not_checked"
+
+  if source_has "Gmail readonly support is gated but not implemented yet. No Gmail access performed."; then
+    gmail_state="planned_not_implemented"
+  elif source_has "Gmail live data not accessed. Run with --allow-live-gmail-readonly to include readonly Gmail diagnostics."; then
+    gmail_state="not_approved"
+  elif source_has "Gmail checked; no source-backed items found."; then
+    gmail_state="checked_no_items"
+  fi
+
+  printf '%s\n' "$gmail_state"
+}
+
+gmail_ignore_text() {
+  local gmail_state="$1"
+
+  case "$gmail_state" in
+    planned_not_implemented)
+      echo "Gmail readonly was explicitly gated for this run, but Gmail support is not implemented yet. No email source was accessed."
+      ;;
+    checked_no_items)
+      echo "Gmail readonly source was checked and returned no source-backed items."
+      ;;
+    not_approved|not_checked|*)
+      echo "No email or message source was approved for this packet."
+      ;;
+  esac
+}
+
 calendar_watch_text() {
   local local_state="$1"
   local google_state="$2"
@@ -211,12 +242,14 @@ executive_summary_text() {
 }
 
 write_local_final() {
-  local states local_state google_state executive_summary calendar_note
+  local states local_state google_state gmail_state executive_summary calendar_note ignore_note
   states="$(calendar_state_summary)"
   local_state="${states%%|*}"
   google_state="${states#*|}"
+  gmail_state="$(gmail_state_summary)"
   executive_summary="$(executive_summary_text "$local_state" "$google_state")"
   calendar_note="$(calendar_watch_text "$local_state" "$google_state")"
+  ignore_note="$(gmail_ignore_text "$gmail_state")"
 
   cat > "$OUTPUT_PATH" <<FINAL
 # Safe Briefing — $(date +%Y-%m-%d)
@@ -237,7 +270,7 @@ $calendar_note
 No source-backed items in this packet.
 
 ## Ignore/Suspicious
-No email or message source was approved for this packet.
+$ignore_note
 FINAL
 }
 

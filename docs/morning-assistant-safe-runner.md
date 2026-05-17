@@ -18,6 +18,7 @@ The generated `briefings/YYYY-MM-DD-HH-safe.md` file is an assembled briefing in
 - Detects the known Hermes test CLI path at `/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.local/bin/hermes`.
 - Reads local Apple Calendar/iCalendar data in read-only mode for today and tomorrow.
 - `full-safe` is non-live by default. It includes Google Calendar readonly diagnostics only when the run is explicitly opted in with `--allow-live-google-calendar`.
+- Gmail readonly is gated behind the future `--allow-live-gmail-readonly` flag, but live Gmail access is not implemented yet. Default `full-safe` writes a non-live Gmail placeholder only.
 - Uses existing prompt files:
   - `prompts/safe-briefing-output-format.md`
   - `prompts/morning-check-in.md`
@@ -26,7 +27,7 @@ The generated `briefings/YYYY-MM-DD-HH-safe.md` file is an assembled briefing in
 ## What it deliberately does not do
 
 - Does not use Claude CLI.
-- Does not use Gmail.
+- Does not use Gmail by default. Gmail live access is not implemented yet; `--allow-live-gmail-readonly` records a gated/not-implemented placeholder only.
 - Does not send iMessages or any other messages.
 - Does not update `memory.md` automatically.
 - Does not create cron jobs, LaunchAgents, schedules, or recurring automation.
@@ -60,7 +61,7 @@ Google Calendar readonly access requires explicit opt-in for that run:
 bash run-briefing.sh --slot morning --mode full-safe --allow-live-google-calendar
 ```
 
-Google Calendar writes are never allowed. Gmail is not implemented yet and must not be accessed by the safe runner.
+Google Calendar writes are never allowed. Gmail is not implemented yet and must not be accessed by the safe runner. No email writes are ever allowed in safe mode.
 
 ## Final briefing format contract
 
@@ -131,7 +132,7 @@ Run the default full safe briefing through the wrapper:
 bash run-briefing.sh --slot morning --mode full-safe
 ```
 
-Equivalent default safety model: default `full-safe` is non-live. Add `--allow-live-google-calendar` only when explicitly approving Google Calendar readonly access.
+Equivalent default safety model: default `full-safe` is non-live. Add `--allow-live-google-calendar` only when explicitly approving Google Calendar readonly access. Future Gmail readonly requires `--allow-live-gmail-readonly`, but the current implementation still performs no Gmail access and records only a not-implemented placeholder.
 
 ## Run each mode
 
@@ -167,7 +168,7 @@ Default full safe mode, non-live:
 bash run-briefing.sh --slot morning --mode full-safe
 ```
 
-This mode does not perform Google Calendar live access by default.
+This mode does not perform Google Calendar or Gmail live access by default. It writes a Gmail non-live placeholder confirming no Gmail connector, OAuth token check, credential check, or API command was run.
 
 Full safe mode with explicit Google Calendar readonly opt-in:
 
@@ -176,6 +177,14 @@ bash run-briefing.sh --slot morning --mode full-safe --allow-live-google-calenda
 ```
 
 With that flag, the runner may include Google Calendar readonly diagnostics before the backend result section. Google Calendar writes are never allowed.
+
+Full safe mode with the future Gmail readonly gate:
+
+```bash
+bash run-briefing.sh --slot morning --mode full-safe --allow-live-gmail-readonly
+```
+
+This flag is parsed for safety scaffolding only. Gmail readonly support is gated but not implemented yet, so the runner writes a planned/not-implemented placeholder and performs no Gmail connector call, OAuth token check, credential check, or API command. No email writes are ever allowed in safe mode.
 
 If Codex CLI is installed and you explicitly want to run the assembled prompt through Codex, keep the same live-source rule: default `full-safe` is non-live, and Google Calendar readonly requires `--allow-live-google-calendar`.
 
@@ -291,11 +300,13 @@ Running default `full-safe` is non-live. Running with `--allow-live-google-calen
 
 Gmail is not implemented yet. It is deferred because email introduces private content, triage risk, and accidental mutation risk. This runner does not authenticate to Gmail, read Gmail, modify Gmail, or summarize Gmail.
 
-Future Gmail readonly behavior should require an explicit opt-in gate before any Gmail read is allowed:
+Future Gmail readonly behavior requires an explicit opt-in gate before any Gmail read is allowed:
 
 ```bash
 --allow-live-gmail-readonly
 ```
+
+Current behavior: the flag is accepted, but live Gmail access is still not implemented. The runner records: “Gmail readonly support is gated but not implemented yet. No Gmail access performed.” Default `full-safe` records: “Gmail live data not accessed. Run with --allow-live-gmail-readonly to include readonly Gmail diagnostics.”
 
 ## How Codex CLI is detected
 

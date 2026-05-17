@@ -15,10 +15,11 @@ MODE="full-safe"
 DRY_RUN=1
 EXECUTE_REQUESTED=0
 ALLOW_LIVE_GOOGLE_CALENDAR=0
+ALLOW_LIVE_GMAIL_READONLY=0
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/run-morning-assistant-safe.sh [--dry-run] [--execute] [--mode MODE] [--allow-live-google-calendar]
+Usage: scripts/run-morning-assistant-safe.sh [--dry-run] [--execute] [--mode MODE] [--allow-live-google-calendar] [--allow-live-gmail-readonly]
 
 Modes:
   check-in                  Assemble the morning check-in prompt.
@@ -26,13 +27,16 @@ Modes:
   calendar-local            Read Apple Calendar/iCalendar events for today and tomorrow only.
   calendar-google-readonly  Run an explicit live Google Calendar readonly safe-list diagnostic.
                             Requires --allow-live-google-calendar.
-  full-safe                 Combine check-in, AI news, local calendar, and a non-live Google Calendar placeholder.
+  full-safe                 Combine check-in, AI news, local calendar, non-live Google Calendar,
+                            and non-live Gmail placeholders.
                             Add --allow-live-google-calendar to include Google Calendar readonly diagnostics.
+                            --allow-live-gmail-readonly is gated but not implemented yet.
 
 Defaults:
   --mode full-safe
   --dry-run behavior unless --execute is provided and Codex CLI is available.
   Google Calendar live data is not accessed unless --allow-live-google-calendar is present.
+  Gmail live data is not accessed. --allow-live-gmail-readonly records a gated/not-implemented placeholder only.
 USAGE
 }
 
@@ -58,6 +62,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --allow-live-google-calendar)
       ALLOW_LIVE_GOOGLE_CALENDAR=1
+      shift
+      ;;
+    --allow-live-gmail-readonly)
+      ALLOW_LIVE_GMAIL_READONLY=1
       shift
       ;;
     --help|-h)
@@ -368,6 +376,30 @@ write_google_placeholder() {
   } >> "$output_file"
 }
 
+write_gmail_placeholder() {
+  {
+    echo
+    echo "## Gmail Non-Live Placeholder"
+    echo
+    echo "Role: email diagnostics/source material; not a finished briefing section."
+    echo "Gmail live data not accessed. Run with --allow-live-gmail-readonly to include readonly Gmail diagnostics."
+    echo "No Gmail connector, OAuth token check, credential check, or API command was run."
+    echo "No email reads, writes, archive, delete, label, mark-read, reply, or send actions were performed."
+  } >> "$output_file"
+}
+
+write_gmail_gated_placeholder() {
+  {
+    echo
+    echo "## Gmail Readonly Planned Placeholder"
+    echo
+    echo "Role: gated email diagnostics/source material; not a finished briefing section."
+    echo "Gmail readonly support is gated but not implemented yet. No Gmail access performed."
+    echo "No Gmail connector, OAuth token check, credential check, or API command was run."
+    echo "No email reads, writes, archive, delete, label, mark-read, reply, or send actions were performed."
+  } >> "$output_file"
+}
+
 write_ai_news_note() {
   {
     echo
@@ -386,11 +418,12 @@ write_ai_news_note() {
   echo "Mode: $MODE"
   echo "Dry run: $DRY_RUN"
   echo "Live Google Calendar allowed: $ALLOW_LIVE_GOOGLE_CALENDAR"
+  echo "Live Gmail readonly allowed: $ALLOW_LIVE_GMAIL_READONLY"
   echo "Codex CLI: ${codex_path:-not found}"
   echo "Codex version: $codex_version"
   echo "Hermes known CLI: ${hermes_path:-not found at known test path}"
   echo
-  echo "Safety contract: read-only; no private email access; no message sending; no automatic persistent-state updates; no calendar writes; no scheduling."
+  echo "Safety contract: read-only; no private email access; no message sending; no automatic persistent-state updates; no calendar writes; no scheduling; no email writes."
 } > "$output_file"
 
 case "$MODE" in
@@ -407,6 +440,7 @@ case "$MODE" in
     append_format_contract
     write_calendar_local
     write_google_placeholder
+    write_gmail_placeholder
     ;;
   calendar-google-readonly)
     append_format_contract
@@ -422,6 +456,11 @@ case "$MODE" in
       write_calendar_google_readonly
     else
       write_google_placeholder
+    fi
+    if [[ "$ALLOW_LIVE_GMAIL_READONLY" -eq 1 ]]; then
+      write_gmail_gated_placeholder
+    else
+      write_gmail_placeholder
     fi
     ;;
 esac
@@ -460,6 +499,7 @@ Safe morning assistant runner complete.
 Mode: $MODE
 Dry run: $DRY_RUN
 Live Google Calendar allowed: $ALLOW_LIVE_GOOGLE_CALENDAR
+Live Gmail readonly allowed: $ALLOW_LIVE_GMAIL_READONLY
 Output: ${output_file#$ROOT_DIR/}
 Codex CLI: ${codex_path:-not found}
 Hermes known CLI: ${hermes_path:-not found at known test path}

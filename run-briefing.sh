@@ -9,6 +9,7 @@ LOG_FILE="$PROJECT_DIR/logs/briefing-$(date '+%Y-%m-%d').log"
 SLOT=""
 MODE=""
 ALLOW_LIVE_GOOGLE_CALENDAR=0
+ALLOW_LIVE_GMAIL_READONLY=0
 
 cd "$PROJECT_DIR"
 
@@ -26,6 +27,10 @@ while [[ $# -gt 0 ]]; do
       ALLOW_LIVE_GOOGLE_CALENDAR=1
       shift
       ;;
+    --allow-live-gmail-readonly)
+      ALLOW_LIVE_GMAIL_READONLY=1
+      shift
+      ;;
     *)
       shift
       ;;
@@ -39,6 +44,9 @@ if [[ "$MODE" == "full-safe" ]]; then
   runner_args=(--dry-run --mode full-safe)
   if [[ "$ALLOW_LIVE_GOOGLE_CALENDAR" -eq 1 ]]; then
     runner_args+=(--allow-live-google-calendar)
+  fi
+  if [[ "$ALLOW_LIVE_GMAIL_READONLY" -eq 1 ]]; then
+    runner_args+=(--allow-live-gmail-readonly)
   fi
 
   bash scripts/run-morning-assistant-safe.sh "${runner_args[@]}"
@@ -85,6 +93,25 @@ if [[ "$MODE" == "full-safe" ]]; then
     fi
     if ! grep -Fq "Google Calendar live data not accessed. Run with --allow-live-google-calendar to include readonly Google Calendar." "$latest_safe"; then
       echo "ERROR: Default full-safe packet is missing the Google Calendar non-live placeholder." >&2
+      validation_status=1
+    fi
+  fi
+
+  if [[ "$ALLOW_LIVE_GMAIL_READONLY" -eq 0 && -f "$latest_safe" ]]; then
+    if grep -Eq 'Gmail Readonly Diagnostics|gmail safe-list|gmail\.readonly|google_token\.json|Gmail API' "$latest_safe"; then
+      echo "ERROR: Default full-safe packet contains live Gmail path markers." >&2
+      validation_status=1
+    fi
+    if grep -Ei 'Gmail.*OAuth token check|OAuth token check.*Gmail' "$latest_safe" | grep -Fv "No Gmail connector, OAuth token check, credential check, or API command was run." >/dev/null; then
+      echo "ERROR: Default full-safe packet contains a Gmail OAuth token check marker outside the non-live placeholder." >&2
+      validation_status=1
+    fi
+    if ! grep -Fq "Gmail live data not accessed. Run with --allow-live-gmail-readonly to include readonly Gmail diagnostics." "$latest_safe"; then
+      echo "ERROR: Default full-safe packet is missing the Gmail non-live placeholder." >&2
+      validation_status=1
+    fi
+    if ! grep -Fq "No Gmail connector, OAuth token check, credential check, or API command was run." "$latest_safe"; then
+      echo "ERROR: Default full-safe packet is missing the Gmail no-access confirmation." >&2
       validation_status=1
     fi
   fi
