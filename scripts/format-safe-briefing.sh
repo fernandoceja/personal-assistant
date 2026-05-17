@@ -170,8 +170,10 @@ calendar_state_summary() {
 gmail_state_summary() {
   local gmail_state="not_checked"
 
-  if source_has "Gmail readonly support is gated but not implemented yet. No Gmail access performed."; then
+  if source_has "Gmail readonly support is gated but live Gmail is not implemented yet. No Gmail access performed." || source_has "Gmail readonly support is gated but not implemented yet. No Gmail access performed."; then
     gmail_state="planned_not_implemented"
+  elif source_has "GMAIL_MOCK_SAFE_LIST_JSON_BEGIN"; then
+    gmail_state="mock_checked"
   elif source_has "Gmail live data not accessed. Run with --allow-live-gmail-readonly to include readonly Gmail diagnostics."; then
     gmail_state="not_approved"
   elif source_has "Gmail checked; no source-backed items found."; then
@@ -187,6 +189,9 @@ gmail_ignore_text() {
   case "$gmail_state" in
     planned_not_implemented)
       echo "Gmail readonly was explicitly gated for this run, but Gmail support is not implemented yet. No email source was accessed."
+      ;;
+    mock_checked)
+      echo "Mock Gmail safe-list source was included; suspicious mock records are summarized below."
       ;;
     checked_no_items)
       echo "Gmail readonly source was checked and returned no source-backed items."
@@ -241,12 +246,82 @@ executive_summary_text() {
   fi
 }
 
+write_gmail_mock_final() {
+  INPUT_PATH="$INPUT_PATH" OUTPUT_PATH="$OUTPUT_PATH" python3 <<'PY'
+import json
+import os
+from pathlib import Path
+
+input_path = Path(os.environ["INPUT_PATH"])
+output_path = Path(os.environ["OUTPUT_PATH"])
+text = input_path.read_text()
+start = text.index("GMAIL_MOCK_SAFE_LIST_JSON_BEGIN") + len("GMAIL_MOCK_SAFE_LIST_JSON_BEGIN")
+end = text.index("GMAIL_MOCK_SAFE_LIST_JSON_END", start)
+records = json.loads(text[start:end].strip())
+
+allowed_fields = {
+    "source", "category", "sender_display", "sender_domain", "subject", "received_at",
+    "snippet", "labels", "has_attachment", "matched_filter", "triage_hint", "safety_notes",
+}
+records = [{k: v for k, v in record.items() if k in allowed_fields} for record in records]
+
+order = ["Priority Now", "Review With Me", "Calendar Watch", "Low Priority", "Ignore/Suspicious"]
+groups = {name: [] for name in order}
+for record in records:
+    groups.setdefault(record.get("triage_hint", "Review With Me"), []).append(record)
+
+def item_line(record):
+    sender = record.get("sender_display", "Unknown sender")
+    domain = record.get("sender_domain", "unknown domain")
+    subject = record.get("subject", "(no subject)")
+    category = record.get("category", "uncategorized")
+    received = record.get("received_at", "unknown time")
+    notes = record.get("safety_notes", "Mock-only safe-list item.")
+    return f"- Gmail mock — {sender} ({domain}) — {subject} — {category}; received {received}. {notes}"
+
+summary = []
+priority_count = len(groups.get("Priority Now", []))
+review_count = len(groups.get("Review With Me", []))
+suspicious_count = len(groups.get("Ignore/Suspicious", []))
+if priority_count:
+    summary.append(f"- {priority_count} mock Gmail item(s) need Priority Now handling: work, school, or billing action language.")
+if review_count:
+    summary.append(f"- {review_count} mock Gmail item(s) need Review With Me handling: legal/immigration or finance/security ambiguity.")
+if suspicious_count:
+    summary.append(f"- {suspicious_count} mock Gmail item(s) were routed to Ignore/Suspicious for phishing-style pressure.")
+if not summary:
+    summary.append("- Mock Gmail safe-list produced no source-backed items.")
+summary = summary[:3]
+
+with output_path.open("w") as fh:
+    fh.write(f"# Safe Briefing — {__import__('datetime').date.today().isoformat()}\n\n")
+    fh.write("## Executive Summary\n")
+    fh.write("\n".join(summary) + "\n\n")
+
+    for section in order:
+        fh.write(f"## {section}\n")
+        items = groups.get(section, [])
+        if section == "Calendar Watch" and not items:
+            fh.write("No clear date/time commitments from mock Gmail safe-list records. No events created.\n\n")
+        elif items:
+            for record in items:
+                fh.write(item_line(record) + "\n")
+            fh.write("\n")
+        else:
+            fh.write("No source-backed items in this packet.\n\n")
+PY
+}
+
 write_local_final() {
   local states local_state google_state gmail_state executive_summary calendar_note ignore_note
   states="$(calendar_state_summary)"
   local_state="${states%%|*}"
   google_state="${states#*|}"
   gmail_state="$(gmail_state_summary)"
+  if [[ "$gmail_state" == "mock_checked" ]]; then
+    write_gmail_mock_final
+    return 0
+  fi
   executive_summary="$(executive_summary_text "$local_state" "$google_state")"
   calendar_note="$(calendar_watch_text "$local_state" "$google_state")"
   ignore_note="$(gmail_ignore_text "$gmail_state")"

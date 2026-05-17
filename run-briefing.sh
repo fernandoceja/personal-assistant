@@ -10,6 +10,7 @@ SLOT=""
 MODE=""
 ALLOW_LIVE_GOOGLE_CALENDAR=0
 ALLOW_LIVE_GMAIL_READONLY=0
+GMAIL_MOCK=0
 
 cd "$PROJECT_DIR"
 
@@ -31,6 +32,10 @@ while [[ $# -gt 0 ]]; do
       ALLOW_LIVE_GMAIL_READONLY=1
       shift
       ;;
+    --gmail-mock)
+      GMAIL_MOCK=1
+      shift
+      ;;
     *)
       shift
       ;;
@@ -47,6 +52,9 @@ if [[ "$MODE" == "full-safe" ]]; then
   fi
   if [[ "$ALLOW_LIVE_GMAIL_READONLY" -eq 1 ]]; then
     runner_args+=(--allow-live-gmail-readonly)
+  fi
+  if [[ "$GMAIL_MOCK" -eq 1 ]]; then
+    runner_args+=(--gmail-mock)
   fi
 
   bash scripts/run-morning-assistant-safe.sh "${runner_args[@]}"
@@ -98,7 +106,7 @@ if [[ "$MODE" == "full-safe" ]]; then
   fi
 
   if [[ "$ALLOW_LIVE_GMAIL_READONLY" -eq 0 && -f "$latest_safe" ]]; then
-    if grep -Eq 'Gmail Readonly Diagnostics|gmail safe-list|gmail\.readonly|google_token\.json|Gmail API' "$latest_safe"; then
+    if grep -Eq 'Gmail Readonly Diagnostics|gmail safe-list|gmail\.readonly|google_token\.json|GMAIL_MOCK_SAFE_LIST_JSON_BEGIN' "$latest_safe"; then
       echo "ERROR: Default full-safe packet contains live Gmail path markers." >&2
       validation_status=1
     fi

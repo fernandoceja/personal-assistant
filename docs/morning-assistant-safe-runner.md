@@ -18,7 +18,8 @@ The generated `briefings/YYYY-MM-DD-HH-safe.md` file is an assembled briefing in
 - Detects the known Hermes test CLI path at `/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.local/bin/hermes`.
 - Reads local Apple Calendar/iCalendar data in read-only mode for today and tomorrow.
 - `full-safe` is non-live by default. It includes Google Calendar readonly diagnostics only when the run is explicitly opted in with `--allow-live-google-calendar`.
-- Gmail readonly is gated behind the future `--allow-live-gmail-readonly` flag, but live Gmail access is not implemented yet. Default `full-safe` writes a non-live Gmail placeholder only.
+- Gmail readonly live access is gated behind the future `--allow-live-gmail-readonly` flag, but live Gmail access is not implemented yet. Default `full-safe` writes a non-live Gmail placeholder only.
+- Mock Gmail safe-list data is available only when both `--allow-live-gmail-readonly` and `--gmail-mock` are present. It reads only `fixtures/gmail-safe-list-mock.json` through `scripts/gmail-safe-list-mock.py` and performs no OAuth, token, credential, connector, Gmail API, or Apple Mail access.
 - Uses existing prompt files:
   - `prompts/safe-briefing-output-format.md`
   - `prompts/morning-check-in.md`
@@ -27,7 +28,8 @@ The generated `briefings/YYYY-MM-DD-HH-safe.md` file is an assembled briefing in
 ## What it deliberately does not do
 
 - Does not use Claude CLI.
-- Does not use Gmail by default. Gmail live access is not implemented yet; `--allow-live-gmail-readonly` records a gated/not-implemented placeholder only.
+- Does not use Gmail by default. Gmail live access is not implemented yet; `--allow-live-gmail-readonly` records a gated/not-implemented placeholder unless `--gmail-mock` is also provided.
+- Does not run Gmail OAuth, read Gmail tokens, check Gmail credentials, call Gmail APIs, or access Apple Mail. Mock Gmail mode reads only checked-in fixture data.
 - Does not send iMessages or any other messages.
 - Does not update `memory.md` automatically.
 - Does not create cron jobs, LaunchAgents, schedules, or recurring automation.
@@ -184,7 +186,47 @@ Full safe mode with the future Gmail readonly gate:
 bash run-briefing.sh --slot morning --mode full-safe --allow-live-gmail-readonly
 ```
 
-This flag is parsed for safety scaffolding only. Gmail readonly support is gated but not implemented yet, so the runner writes a planned/not-implemented placeholder and performs no Gmail connector call, OAuth token check, credential check, or API command. No email writes are ever allowed in safe mode.
+This flag is parsed for safety scaffolding only. Gmail live readonly support is gated but not implemented yet, so the runner writes a planned/not-implemented placeholder and performs no Gmail connector call, OAuth token check, credential check, API command, or Apple Mail access. No email writes are ever allowed in safe mode.
+
+Full safe mode with mock Gmail safe-list records:
+
+```bash
+bash run-briefing.sh --slot morning --mode full-safe --allow-live-gmail-readonly --gmail-mock
+```
+
+This still performs no live Gmail access. The runner executes the local mock equivalent of:
+
+```bash
+gmail safe-list --mock --window 48h --max-per-filter 10
+```
+
+Current local equivalent:
+
+```bash
+python3 scripts/gmail-safe-list-mock.py safe-list --mock --window 48h --max-per-filter 10
+```
+
+The mock command reads only `fixtures/gmail-safe-list-mock.json` and emits normalized records with these allowed fields only: `source`, `category`, `sender_display`, `sender_domain`, `subject`, `received_at`, `snippet` capped to 200 characters, `labels`, `has_attachment`, `matched_filter`, `triage_hint`, and `safety_notes`.
+
+Excluded fields: full message bodies, attachments, attachment names/IDs/contents, raw headers, tracking links, unsubscribe links, auth/security tokens, one-time passcodes, account numbers, full URLs, message IDs, thread IDs, raw Gmail API responses, To/Cc/Bcc, and OAuth/token/config paths or contents.
+
+Mock Gmail categories:
+
+- Immigration / USCIS / legal
+- Work / Apple
+- School / UMGC
+- Bills / T-Mobile / HelloStorage
+- Finances / Rocket Money / Fidelity / IBKR / E*TRADE / BofA / IHSS
+- Suspicious/phishing
+- Low priority / routine
+
+Triage mapping:
+
+- Priority Now: deadlines, payment failed/past due, service interruption, work schedule action, school deadline, fraud/account lock, legal/immigration deadline.
+- Review With Me: immigration/legal ambiguity, financial aid, statements/tax forms, unclear work/school actions, security alerts that may be legitimate.
+- Calendar Watch: only clear date/time commitments; the runner does not create events.
+- Low Priority: routine confirmations, newsletters, routine notices.
+- Ignore/Suspicious: phishing, fake billing, credential pressure, suspicious attachments, unknown sender with legal/banking/immigration language.
 
 If Codex CLI is installed and you explicitly want to run the assembled prompt through Codex, keep the same live-source rule: default `full-safe` is non-live, and Google Calendar readonly requires `--allow-live-google-calendar`.
 

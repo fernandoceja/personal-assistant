@@ -16,10 +16,12 @@ DRY_RUN=1
 EXECUTE_REQUESTED=0
 ALLOW_LIVE_GOOGLE_CALENDAR=0
 ALLOW_LIVE_GMAIL_READONLY=0
+GMAIL_MOCK=0
+GMAIL_MOCK_SCRIPT="$ROOT_DIR/scripts/gmail-safe-list-mock.py"
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/run-morning-assistant-safe.sh [--dry-run] [--execute] [--mode MODE] [--allow-live-google-calendar] [--allow-live-gmail-readonly]
+Usage: scripts/run-morning-assistant-safe.sh [--dry-run] [--execute] [--mode MODE] [--allow-live-google-calendar] [--allow-live-gmail-readonly] [--gmail-mock]
 
 Modes:
   check-in                  Assemble the morning check-in prompt.
@@ -30,13 +32,15 @@ Modes:
   full-safe                 Combine check-in, AI news, local calendar, non-live Google Calendar,
                             and non-live Gmail placeholders.
                             Add --allow-live-google-calendar to include Google Calendar readonly diagnostics.
-                            --allow-live-gmail-readonly is gated but not implemented yet.
+                            --allow-live-gmail-readonly remains live-gated/not implemented.
+                            Add --gmail-mock with --allow-live-gmail-readonly to include mock-only Gmail safe-list records.
 
 Defaults:
   --mode full-safe
   --dry-run behavior unless --execute is provided and Codex CLI is available.
   Google Calendar live data is not accessed unless --allow-live-google-calendar is present.
   Gmail live data is not accessed. --allow-live-gmail-readonly records a gated/not-implemented placeholder only.
+  Gmail mock data is included only with both --allow-live-gmail-readonly and --gmail-mock.
 USAGE
 }
 
@@ -68,6 +72,10 @@ while [[ $# -gt 0 ]]; do
       ALLOW_LIVE_GMAIL_READONLY=1
       shift
       ;;
+    --gmail-mock)
+      GMAIL_MOCK=1
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -91,6 +99,12 @@ esac
 
 if [[ "$MODE" == "calendar-google-readonly" && "$ALLOW_LIVE_GOOGLE_CALENDAR" -ne 1 ]]; then
   echo "ERROR: calendar-google-readonly requires --allow-live-google-calendar." >&2
+  usage >&2
+  exit 2
+fi
+
+if [[ "$GMAIL_MOCK" -eq 1 && "$ALLOW_LIVE_GMAIL_READONLY" -ne 1 ]]; then
+  echo "ERROR: --gmail-mock requires --allow-live-gmail-readonly." >&2
   usage >&2
   exit 2
 fi
@@ -394,10 +408,52 @@ write_gmail_gated_placeholder() {
     echo "## Gmail Readonly Planned Placeholder"
     echo
     echo "Role: gated email diagnostics/source material; not a finished briefing section."
-    echo "Gmail readonly support is gated but not implemented yet. No Gmail access performed."
+    echo "Gmail readonly support is gated but live Gmail is not implemented yet. No Gmail access performed."
     echo "No Gmail connector, OAuth token check, credential check, or API command was run."
     echo "No email reads, writes, archive, delete, label, mark-read, reply, or send actions were performed."
+    echo "To include mock-only safe-list records, rerun with --allow-live-gmail-readonly --gmail-mock."
   } >> "$output_file"
+}
+
+write_gmail_mock_safe_list() {
+  {
+    echo
+    echo "## Gmail Mock Safe-List"
+    echo
+    echo "Role: mock-only email source material for the formatter; not live Gmail data and not a finished briefing section."
+    echo "Command shape: gmail safe-list --mock --window 48h --max-per-filter 10"
+    echo "Executed local equivalent: python3 scripts/gmail-safe-list-mock.py safe-list --mock --window 48h --max-per-filter 10"
+    echo "Source: fixtures/gmail-safe-list-mock.json"
+    echo "Live Gmail access: not implemented and not performed."
+    echo "Safety: no OAuth, token file check, credential check, Gmail connector, Gmail API call, Apple Mail access, email write, or message mutation."
+    echo "Allowed fields only: source, category, sender_display, sender_domain, subject, received_at, snippet, labels, has_attachment, matched_filter, triage_hint, safety_notes."
+    echo "Excluded fields: full bodies, attachments, attachment names/IDs/contents, raw headers, tracking links, unsubscribe links, tokens, OTPs, account numbers, full URLs, message IDs, thread IDs, raw Gmail API responses, To/Cc/Bcc, OAuth/token/config paths or contents."
+    echo
+    echo "Records:"
+  } >> "$output_file"
+
+  if [[ ! -f "$GMAIL_MOCK_SCRIPT" ]]; then
+    echo "Result: failure — mock Gmail safe-list script not found." >> "$output_file"
+    return 0
+  fi
+
+  local gmail_mock_output=""
+  local status=0
+  gmail_mock_output="$(python3 "$GMAIL_MOCK_SCRIPT" safe-list --mock --window 48h --max-per-filter 10 2>&1)" || status=$?
+
+  if [[ $status -ne 0 ]]; then
+    {
+      echo "Result: failure — mock Gmail safe-list exited with status $status."
+      echo "$gmail_mock_output"
+    } >> "$output_file"
+  else
+    {
+      echo "Result: success — mock Gmail safe-list completed."
+      echo "GMAIL_MOCK_SAFE_LIST_JSON_BEGIN"
+      echo "$gmail_mock_output"
+      echo "GMAIL_MOCK_SAFE_LIST_JSON_END"
+    } >> "$output_file"
+  fi
 }
 
 write_ai_news_note() {
@@ -419,6 +475,7 @@ write_ai_news_note() {
   echo "Dry run: $DRY_RUN"
   echo "Live Google Calendar allowed: $ALLOW_LIVE_GOOGLE_CALENDAR"
   echo "Live Gmail readonly allowed: $ALLOW_LIVE_GMAIL_READONLY"
+  echo "Gmail mock enabled: $GMAIL_MOCK"
   echo "Codex CLI: ${codex_path:-not found}"
   echo "Codex version: $codex_version"
   echo "Hermes known CLI: ${hermes_path:-not found at known test path}"
@@ -458,7 +515,11 @@ case "$MODE" in
       write_google_placeholder
     fi
     if [[ "$ALLOW_LIVE_GMAIL_READONLY" -eq 1 ]]; then
-      write_gmail_gated_placeholder
+      if [[ "$GMAIL_MOCK" -eq 1 ]]; then
+        write_gmail_mock_safe_list
+      else
+        write_gmail_gated_placeholder
+      fi
     else
       write_gmail_placeholder
     fi
@@ -500,6 +561,7 @@ Mode: $MODE
 Dry run: $DRY_RUN
 Live Google Calendar allowed: $ALLOW_LIVE_GOOGLE_CALENDAR
 Live Gmail readonly allowed: $ALLOW_LIVE_GMAIL_READONLY
+Gmail mock enabled: $GMAIL_MOCK
 Output: ${output_file#$ROOT_DIR/}
 Codex CLI: ${codex_path:-not found}
 Hermes known CLI: ${hermes_path:-not found at known test path}

@@ -20,7 +20,9 @@ https://www.googleapis.com/auth/calendar.readonly
 
 Do not use the full calendar scope for Phase 2 assistant calendar workflows.
 
-Gmail is intentionally deferred. This preserved patch is calendar-only; its setup path cannot request Gmail scopes. Do not add Gmail OAuth scopes to this folder before the calendar-readonly OAuth flow is completed and reviewed.
+Gmail is intentionally deferred for live access. This preserved patch is calendar-only; its setup path cannot request Gmail scopes. Do not add Gmail OAuth scopes to this folder before the calendar-readonly OAuth flow is completed and reviewed.
+
+Personal Assistant mock Gmail safe-list validation is separate from this Google Workspace patch. The mock path uses checked-in fixture data only (`fixtures/gmail-safe-list-mock.json`) and must not add Gmail scopes, run OAuth, read token files, or call Gmail APIs.
 
 Approved setup command:
 
