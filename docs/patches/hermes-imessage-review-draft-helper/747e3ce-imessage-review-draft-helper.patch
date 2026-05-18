@@ -1,0 +1,234 @@
+From 747e3cee702e226fece9c8b21d13f832d4ae8c50 Mon Sep 17 00:00:00 2001
+From: Fernando Ceja <fernandoceja@Fernandos-MacBook-Air.local>
+Date: Mon, 18 May 2026 12:41:36 -0700
+Subject: [PATCH] feat(imessage): add review-only draft helper
+
+---
+ skills/apple/imessage/SKILL.md                | 24 ++++-
+ skills/apple/imessage/scripts/review_draft.py | 99 +++++++++++++++++++
+ tests/skills/test_imessage_review_draft.py    | 64 ++++++++++++
+ 3 files changed, 183 insertions(+), 4 deletions(-)
+ create mode 100755 skills/apple/imessage/scripts/review_draft.py
+ create mode 100644 tests/skills/test_imessage_review_draft.py
+
+diff --git a/skills/apple/imessage/SKILL.md b/skills/apple/imessage/SKILL.md
+index 82df6a6ec..e90e6d8f8 100644
+--- a/skills/apple/imessage/SKILL.md
++++ b/skills/apple/imessage/SKILL.md
+@@ -54,18 +54,34 @@ imsg history --chat-id 1 --limit 20 --json
+ imsg history --chat-id 1 --limit 20 --attachments --json
+ ```
+ 
++### Draft for Review Only
++
++When the user asks you to draft a text/iMessage but not send it, use the bundled review-only helper. It opens Messages.app with a prefilled compose draft and has no send path.
++
++```bash
++python skills/apple/imessage/scripts/review_draft.py \
++  --to "+141****1212" \
++  --text "Draft this, but let me review before sending."
++
++# Validation / preview mode: prints the Messages URL without opening Messages.app.
++python skills/apple/imessage/scripts/review_draft.py \
++  --to "+141****1212" \
++  --text "Draft this, but let me review before sending." \
++  --print-url
++```
++
+ ### Send Messages
+ 
+ ```bash
+ # Text only
+-imsg send --to "+14155551212" --text "Hello!"
++imsg send --to "+141****1212" --text "Hello!"
+ 
+ # With attachment
+-imsg send --to "+14155551212" --text "Check this out" --file /path/to/image.jpg
++imsg send --to "+141****1212" --text "Check this out" --file /path/to/image.jpg
+ 
+ # Force iMessage or SMS
+-imsg send --to "+14155551212" --text "Hi" --service imessage
+-imsg send --to "+14155551212" --text "Hi" --service sms
++imsg send --to "+141****1212" --text "Hi" --service imessage
++imsg send --to "+141****1212" --text "Hi" --service sms
+ ```
+ 
+ ### Watch for New Messages
+diff --git a/skills/apple/imessage/scripts/review_draft.py b/skills/apple/imessage/scripts/review_draft.py
+new file mode 100755
+index 000000000..b39ceae44
+--- /dev/null
++++ b/skills/apple/imessage/scripts/review_draft.py
+@@ -0,0 +1,99 @@
++#!/usr/bin/env python3
++"""Open a review-only Messages.app draft without sending it.
++
++This helper intentionally has no send path. It builds a macOS Messages URL and
++opens it with Launch Services so the user can review/edit/send manually.
++"""
++
++from __future__ import annotations
++
++import argparse
++import platform
++import subprocess
++import sys
++from urllib.parse import quote
++
++
++class DraftError(ValueError):
++    """Raised when a draft cannot be prepared safely."""
++
++
++def _clean_recipient(recipient: str) -> str:
++    recipient = (recipient or "").strip()
++    if not recipient:
++        raise DraftError("recipient is required")
++    if any(ch in recipient for ch in "\r\n"):
++        raise DraftError("recipient must be a single line")
++    return recipient
++
++
++def _clean_message(message: str) -> str:
++    message = message or ""
++    if not message.strip():
++        raise DraftError("message text is required")
++    return message
++
++
++def build_messages_url(recipient: str, message: str) -> str:
++    """Return a macOS Messages.app URL for a recipient + draft body.
++
++    The sms: URL scheme is handled by Messages.app on macOS. Opening this URL
++    creates a compose window with the body filled in; it does not press Return
++    or invoke the Messages AppleScript `send` command.
++    """
++
++    recipient = _clean_recipient(recipient)
++    message = _clean_message(message)
++    recipient_q = quote(recipient, safe='+@.-_')
++    body_q = quote(message, safe='')
++    return f"sms://open?addresses={recipient_q}&body={body_q}"
++
++
++def open_review_draft(recipient: str, message: str) -> str:
++    """Open Messages.app to a review-only draft and return the URL used."""
++
++    if platform.system() != "Darwin":
++        raise DraftError("review drafts require macOS / Messages.app")
++
++    url = build_messages_url(recipient, message)
++    subprocess.run(["open", url], check=True)
++    return url
++
++
++def parse_args(argv: list[str]) -> argparse.Namespace:
++    parser = argparse.ArgumentParser(
++        description=(
++            "Open a Messages.app/iMessage draft for human review only. "
++            "This script never sends the message."
++        )
++    )
++    parser.add_argument("--to", required=True, help="Phone number or Apple ID recipient")
++    parser.add_argument(
++        "--text",
++        required=True,
++        help="Draft message body. Quote multiline text in your shell as needed.",
++    )
++    parser.add_argument(
++        "--print-url",
++        action="store_true",
++        help="Print the Messages URL without opening Messages.app.",
++    )
++    return parser.parse_args(argv)
++
++
++def main(argv: list[str] | None = None) -> int:
++    args = parse_args(sys.argv[1:] if argv is None else argv)
++    try:
++        if args.print_url:
++            print(build_messages_url(args.to, args.text))
++        else:
++            open_review_draft(args.to, args.text)
++            print("Opened Messages.app draft for review only; nothing was sent.")
++        return 0
++    except (DraftError, subprocess.CalledProcessError) as exc:
++        print(f"error: {exc}", file=sys.stderr)
++        return 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/skills/test_imessage_review_draft.py b/tests/skills/test_imessage_review_draft.py
+new file mode 100644
+index 000000000..111eadae3
+--- /dev/null
++++ b/tests/skills/test_imessage_review_draft.py
+@@ -0,0 +1,64 @@
++"""Tests for the iMessage review-only draft helper."""
++
++from __future__ import annotations
++
++import importlib.util
++import pathlib
++
++import pytest
++
++
++REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
++SCRIPT_PATH = REPO_ROOT / "skills" / "apple" / "imessage" / "scripts" / "review_draft.py"
++
++
++def _load_module():
++    spec = importlib.util.spec_from_file_location("imessage_review_draft", SCRIPT_PATH)
++    assert spec and spec.loader
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++def test_build_messages_url_encodes_recipient_and_body():
++    mod = _load_module()
++
++    url = mod.build_messages_url("+14155551212", "Hello Fernando & family")
++
++    assert url == "sms://open?addresses=+14155551212&body=Hello%20Fernando%20%26%20family"
++
++
++def test_build_messages_url_allows_apple_id_recipient():
++    mod = _load_module()
++
++    url = mod.build_messages_url("person@example.com", "Line 1\nLine 2")
++
++    assert url == "sms://open?addresses=person@example.com&body=Line%201%0ALine%202"
++
++
++def test_build_messages_url_rejects_missing_message():
++    mod = _load_module()
++
++    with pytest.raises(mod.DraftError, match="message text is required"):
++        mod.build_messages_url("+14155551212", "   ")
++
++
++def test_build_messages_url_rejects_multiline_recipient():
++    mod = _load_module()
++
++    with pytest.raises(mod.DraftError, match="single line"):
++        mod.build_messages_url("+14155551212\n+14155559999", "Hello")
++
++
++def test_print_url_mode_does_not_open_messages(monkeypatch, capsys):
++    mod = _load_module()
++
++    def fail_if_called(*args, **kwargs):  # pragma: no cover - failure path
++        raise AssertionError("open should not be called in --print-url mode")
++
++    monkeypatch.setattr(mod.subprocess, "run", fail_if_called)
++
++    status = mod.main(["--to", "+14155551212", "--text", "Review me", "--print-url"])
++
++    assert status == 0
++    assert capsys.readouterr().out.strip() == "sms://open?addresses=+14155551212&body=Review%20me"
+-- 
+2.50.1 (Apple Git-155)
+
