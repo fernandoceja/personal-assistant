@@ -112,7 +112,46 @@ Output is written to:
 briefings/YYYY-MM-DD-HH-imessage-draft.txt
 ```
 
-The draft is review-only. It is a local text file preview for Fernando to inspect/edit manually. It does not send an iMessage, does not open Messages.app, does not run `osascript`, and does not create cron jobs, LaunchAgents, or any scheduling. Send behavior and scheduling are not implemented yet.
+The draft is review-only. It is a local text file preview for Fernando to inspect/edit manually. It does not send an iMessage, does not open Messages.app, does not run `osascript`, and does not create cron jobs, LaunchAgents, or any scheduling.
+
+## Explicit-send iMessage draft helper
+
+After Fernando has reviewed the local draft file, preview the draft with the explicit-send helper:
+
+```bash
+scripts/send-imessage-briefing-draft.py
+```
+
+To preview a specific reviewed draft instead of the latest `briefings/*-imessage-draft.txt`, run:
+
+```bash
+scripts/send-imessage-briefing-draft.py briefings/YYYY-MM-DD-HH-imessage-draft.txt
+```
+
+Default behavior is dry-run/no-send. In dry-run mode, the helper prints the draft preview and does not call `osascript`, does not open or send through Messages.app, does not access Gmail, does not access Google Calendar, does not read the safe packet, does not touch credentials, and does not update `memory.md`.
+
+Sending is manual and requires both an explicit approval flag and an explicit recipient:
+
+```bash
+scripts/send-imessage-briefing-draft.py briefings/YYYY-MM-DD-HH-imessage-draft.txt --send-approved-draft --recipient "+1XXXXXXXXXX"
+```
+
+Recipient may also be a Messages/iMessage buddy name if that is how Messages.app resolves the contact:
+
+```bash
+scripts/send-imessage-briefing-draft.py --send-approved-draft --recipient "Fernando"
+```
+
+Safety boundaries for explicit-send:
+
+- The helper reads only `*-imessage-draft.txt` files.
+- It refuses safe packets and non-draft inputs.
+- It refuses send mode when `--recipient` is missing.
+- It refuses drafts over 900 characters.
+- It refuses drafts containing links, message IDs, thread IDs, attachment markers, or raw Gmail/API markers.
+- It never auto-generates and sends in one step; create/review the draft first, then run the send helper separately.
+
+Scheduling is still not implemented. This is not automatic daily delivery yet. Do not add cron jobs, LaunchAgents, or recurring automation until that is separately approved.
 
 ## Final briefing format contract
 
