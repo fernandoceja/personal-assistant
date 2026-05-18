@@ -65,6 +65,31 @@ bash run-briefing.sh --slot morning --mode full-safe --allow-live-google-calenda
 
 Google Calendar writes are never allowed. Gmail is accessed only when explicitly opted in with `--allow-live-gmail-readonly`, and then only through Gmail readonly safe-list. No email writes are ever allowed in safe mode.
 
+## Manual live morning wrapper
+
+For an approved, manual/run-on-demand live read-only morning briefing, use:
+
+```bash
+scripts/run-live-morning-briefing.sh
+```
+
+This convenience wrapper intentionally does only this command:
+
+```bash
+bash run-briefing.sh --slot morning --mode full-safe --allow-live-google-calendar --allow-live-gmail-readonly
+```
+
+It is not scheduled yet. Do not add cron jobs, LaunchAgents, or recurring automation until that is separately approved.
+
+Safety boundaries for this wrapper:
+
+- It does not send iMessage.
+- It does not update `memory.md`.
+- It does not create, modify, or delete calendar events.
+- It does not run Gmail legacy commands.
+- It opts in only to Google Calendar readonly and Gmail readonly safe-list access already supported by `full-safe`.
+- It validates that safe and final briefing files are generated through the existing `run-briefing.sh` full-safe validation path.
+
 ## Final briefing format contract
 
 The desired final briefing preserves these six top-level sections exactly:
