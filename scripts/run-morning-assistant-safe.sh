@@ -7,8 +7,9 @@ PROMPT_AI_NEWS="$ROOT_DIR/prompts/morning-ai-briefing-phase-1.md"
 PROMPT_SAFE_FORMAT="$ROOT_DIR/prompts/safe-briefing-output-format.md"
 BRIEFINGS_DIR="$ROOT_DIR/briefings"
 HERMES_KNOWN_PATH="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.local/bin/hermes"
-GOOGLE_HERMES_VENV_PYTHON="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/hermes-agent/venv/bin/python3"
+GOOGLE_HERMES_USER_HOME="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home"
 GOOGLE_HERMES_HOME="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes"
+GOOGLE_HERMES_VENV_PYTHON="$GOOGLE_HERMES_HOME/venvs/google-workspace/bin/python"
 GOOGLE_API_SCRIPT="$GOOGLE_HERMES_HOME/skills/productivity/google-workspace/scripts/google_api.py"
 
 MODE="full-safe"
@@ -32,15 +33,15 @@ Modes:
   full-safe                 Combine check-in, AI news, local calendar, non-live Google Calendar,
                             and non-live Gmail placeholders.
                             Add --allow-live-google-calendar to include Google Calendar readonly diagnostics.
-                            --allow-live-gmail-readonly remains live-gated/not implemented.
+                            Add --allow-live-gmail-readonly to include live Gmail readonly safe-list records.
                             Add --gmail-mock with --allow-live-gmail-readonly to include mock-only Gmail safe-list records.
 
 Defaults:
   --mode full-safe
   --dry-run behavior unless --execute is provided and Codex CLI is available.
   Google Calendar live data is not accessed unless --allow-live-google-calendar is present.
-  Gmail live data is not accessed. --allow-live-gmail-readonly records a gated/not-implemented placeholder only.
-  Gmail mock data is included only with both --allow-live-gmail-readonly and --gmail-mock.
+  Gmail live data is not accessed unless --allow-live-gmail-readonly is present.
+  Gmail mock data is included only with both --allow-live-gmail-readonly and --gmail-mock; mock mode never accesses live Gmail.
 USAGE
 }
 
@@ -402,17 +403,92 @@ write_gmail_placeholder() {
   } >> "$output_file"
 }
 
-write_gmail_gated_placeholder() {
+write_gmail_live_safe_list() {
   {
     echo
-    echo "## Gmail Readonly Planned Placeholder"
+    echo "## Gmail Live Safe-List"
     echo
-    echo "Role: gated email diagnostics/source material; not a finished briefing section."
-    echo "Gmail readonly support is gated but live Gmail is not implemented yet. No Gmail access performed."
-    echo "No Gmail connector, OAuth token check, credential check, or API command was run."
-    echo "No email reads, writes, archive, delete, label, mark-read, reply, or send actions were performed."
-    echo "To include mock-only safe-list records, rerun with --allow-live-gmail-readonly --gmail-mock."
+    echo "Role: live readonly email source material for the formatter; not a finished briefing section."
+    echo "Scope: live Gmail readonly safe-list only."
+    echo "Exact command: HOME=\"$GOOGLE_HERMES_USER_HOME\" HERMES_HOME=\"$GOOGLE_HERMES_HOME\" \"$GOOGLE_HERMES_VENV_PYTHON\" \"$GOOGLE_API_SCRIPT\" gmail safe-list --window 48h --max-per-filter 10"
+    echo "Allowed fields only: source, category, sender_display, sender_domain, subject, received_at, snippet, labels, has_attachment, matched_filter, triage_hint, safety_notes."
+    echo "Excluded fields: message IDs, thread IDs, full bodies, attachment details, raw Gmail API responses, credentials, token contents, To/Cc/Bcc, full URLs, send/reply/modify outputs."
+    echo "Safety: no gmail search/get/labels/send/reply/modify command is used; no Apple Mail access; no email write or message mutation."
+    echo
+    echo "Records:"
   } >> "$output_file"
+
+  if [[ ! -f "$GOOGLE_API_SCRIPT" ]]; then
+    echo "Result: failure — Google API script not found at expected path; no Gmail command run." >> "$output_file"
+    return 0
+  fi
+
+  if [[ ! -x "$GOOGLE_HERMES_VENV_PYTHON" ]]; then
+    echo "Result: failure — Google Workspace venv Python not found or not executable at expected path; no Gmail command run." >> "$output_file"
+    return 0
+  fi
+
+  local gmail_output=""
+  local status=0
+  gmail_output="$(HOME="$GOOGLE_HERMES_USER_HOME" HERMES_HOME="$GOOGLE_HERMES_HOME" "$GOOGLE_HERMES_VENV_PYTHON" "$GOOGLE_API_SCRIPT" gmail safe-list --window 48h --max-per-filter 10 2>&1)" || status=$?
+
+  local normalized_output=""
+  normalized_output="$(GMAIL_SAFE_RAW="$gmail_output" python3 <<'PY'
+import json
+import os
+import sys
+
+allowed = [
+    "source", "category", "sender_display", "sender_domain", "subject", "received_at",
+    "snippet", "labels", "has_attachment", "matched_filter", "triage_hint", "safety_notes",
+]
+allowed_triage = {"Priority Now", "Review With Me", "Calendar Watch", "Low Priority", "Ignore/Suspicious"}
+raw = os.environ.get("GMAIL_SAFE_RAW", "")
+try:
+    payload = json.loads(raw)
+except Exception:
+    print(json.dumps([], indent=2, ensure_ascii=False))
+    sys.exit(0)
+
+if isinstance(payload, dict):
+    records = payload.get("records", [])
+elif isinstance(payload, list):
+    records = payload
+else:
+    records = []
+
+clean = []
+for record in records:
+    if not isinstance(record, dict):
+        continue
+    item = {field: record.get(field, "") for field in allowed}
+    item["source"] = "gmail_readonly"
+    item["snippet"] = " ".join(str(item.get("snippet", "")).split())[:200]
+    labels = item.get("labels", [])
+    item["labels"] = labels if isinstance(labels, list) else []
+    if item.get("triage_hint") not in allowed_triage:
+        item["triage_hint"] = "Review With Me"
+    clean.append(item)
+
+print(json.dumps(clean, indent=2, ensure_ascii=False))
+PY
+)"
+
+  if [[ $status -ne 0 ]]; then
+    {
+      echo "Result: failure — Gmail readonly safe-list exited with status $status; no raw Gmail output printed."
+      echo "GMAIL_SAFE_LIST_JSON_BEGIN"
+      echo "$normalized_output"
+      echo "GMAIL_SAFE_LIST_JSON_END"
+    } >> "$output_file"
+  else
+    {
+      echo "Result: success — Gmail readonly safe-list completed."
+      echo "GMAIL_SAFE_LIST_JSON_BEGIN"
+      echo "$normalized_output"
+      echo "GMAIL_SAFE_LIST_JSON_END"
+    } >> "$output_file"
+  fi
 }
 
 write_gmail_mock_safe_list() {
@@ -518,7 +594,7 @@ case "$MODE" in
       if [[ "$GMAIL_MOCK" -eq 1 ]]; then
         write_gmail_mock_safe_list
       else
-        write_gmail_gated_placeholder
+        write_gmail_live_safe_list
       fi
     else
       write_gmail_placeholder

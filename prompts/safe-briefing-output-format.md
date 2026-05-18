@@ -56,12 +56,12 @@ For `## Ignore/Suspicious`, when no email or message source was approved, includ
 
 ## Safety Rules
 
-- Do not add Gmail findings unless Gmail access was explicitly approved for that run and either live Gmail readonly support is implemented or mock Gmail mode is explicitly enabled.
+- Do not add Gmail findings unless Gmail access was explicitly approved for that run with `--allow-live-gmail-readonly`, or mock Gmail mode is explicitly enabled with both `--allow-live-gmail-readonly --gmail-mock`.
 - Default full-safe runs include only a non-live Gmail placeholder; do not treat it as email source data.
-- If --allow-live-gmail-readonly is present without --gmail-mock before implementation, report that Gmail readonly is gated but live Gmail is not implemented and that no Gmail access was performed.
-- If --allow-live-gmail-readonly and --gmail-mock are both present, only use normalized mock safe-list records from the source packet; do not infer live Gmail access.
-- Mock Gmail safe-list records may include only: source, category, sender_display, sender_domain, subject, received_at, snippet capped to 200 characters, labels, has_attachment, matched_filter, triage_hint, safety_notes.
-- Mock Gmail safe-list output must never expose full bodies, attachments, attachment names/IDs/contents, raw headers, tracking links, unsubscribe links, tokens, one-time passcodes, account numbers, full URLs, message IDs, thread IDs, raw Gmail API responses, To/Cc/Bcc, or OAuth/token/config paths or contents.
+- If `--allow-live-gmail-readonly` is present without `--gmail-mock`, use only live `gmail safe-list --window 48h --max-per-filter 10` normalized records from the source packet.
+- If `--allow-live-gmail-readonly --gmail-mock` is present, use only normalized mock safe-list records from the source packet; do not infer live Gmail access.
+- Gmail safe-list records may include only: source, category, sender_display, sender_domain, subject, received_at, snippet capped to 200 characters, labels, has_attachment, matched_filter, triage_hint, safety_notes.
+- Gmail safe-list output must never expose full bodies, attachments, attachment names/IDs/contents, raw headers, tracking links, unsubscribe links, tokens, one-time passcodes, account numbers, full URLs, message IDs, thread IDs, raw Gmail API responses, To/Cc/Bcc, or OAuth/token/config paths or contents.
 - Map Gmail safe-list triage hints into the six final sections: Priority Now, Review With Me, Calendar Watch, Low Priority, Ignore/Suspicious, and Executive Summary.
 - Gmail categories are: Immigration / USCIS / legal; Work / Apple; School / UMGC; Bills / T-Mobile / HelloStorage; Finances / Rocket Money / Fidelity / IBKR / E*TRADE / BofA / IHSS; Suspicious/phishing; Low priority / routine.
 - No email writes are ever allowed in safe mode: no send, reply, forward, archive, delete, label, or mark-read actions.

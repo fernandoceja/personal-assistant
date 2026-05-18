@@ -18,7 +18,7 @@ The generated `briefings/YYYY-MM-DD-HH-safe.md` file is an assembled briefing in
 - Detects the known Hermes test CLI path at `/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.local/bin/hermes`.
 - Reads local Apple Calendar/iCalendar data in read-only mode for today and tomorrow.
 - `full-safe` is non-live by default. It includes Google Calendar readonly diagnostics only when the run is explicitly opted in with `--allow-live-google-calendar`.
-- Gmail readonly live access is gated behind the future `--allow-live-gmail-readonly` flag, but live Gmail access is not implemented yet. Default `full-safe` writes a non-live Gmail placeholder only.
+- Gmail readonly live safe-list access is gated behind `--allow-live-gmail-readonly`. Default `full-safe` writes a non-live Gmail placeholder only.
 - Mock Gmail safe-list data is available only when both `--allow-live-gmail-readonly` and `--gmail-mock` are present. It reads only `fixtures/gmail-safe-list-mock.json` through `scripts/gmail-safe-list-mock.py` and performs no OAuth, token, credential, connector, Gmail API, or Apple Mail access.
 - Uses existing prompt files:
   - `prompts/safe-briefing-output-format.md`
@@ -28,8 +28,8 @@ The generated `briefings/YYYY-MM-DD-HH-safe.md` file is an assembled briefing in
 ## What it deliberately does not do
 
 - Does not use Claude CLI.
-- Does not use Gmail by default. Gmail live access is not implemented yet; `--allow-live-gmail-readonly` records a gated/not-implemented placeholder unless `--gmail-mock` is also provided.
-- Does not run Gmail OAuth, read Gmail tokens, check Gmail credentials, call Gmail APIs, or access Apple Mail. Mock Gmail mode reads only checked-in fixture data.
+- Does not use Gmail by default. `--allow-live-gmail-readonly` runs only the Gmail readonly safe-list command; `--gmail-mock` keeps the path fixture-only.
+- Does not run Gmail OAuth, read Gmail tokens, check Gmail credentials, call Gmail APIs, or access Apple Mail by default. Live Gmail access is only the explicit `gmail safe-list` command; mock Gmail mode reads only checked-in fixture data.
 - Does not send iMessages or any other messages.
 - Does not update `memory.md` automatically.
 - Does not create cron jobs, LaunchAgents, schedules, or recurring automation.
@@ -63,7 +63,7 @@ Google Calendar readonly access requires explicit opt-in for that run:
 bash run-briefing.sh --slot morning --mode full-safe --allow-live-google-calendar
 ```
 
-Google Calendar writes are never allowed. Gmail is not implemented yet and must not be accessed by the safe runner. No email writes are ever allowed in safe mode.
+Google Calendar writes are never allowed. Gmail is accessed only when explicitly opted in with `--allow-live-gmail-readonly`, and then only through Gmail readonly safe-list. No email writes are ever allowed in safe mode.
 
 ## Final briefing format contract
 
@@ -134,7 +134,7 @@ Run the default full safe briefing through the wrapper:
 bash run-briefing.sh --slot morning --mode full-safe
 ```
 
-Equivalent default safety model: default `full-safe` is non-live. Add `--allow-live-google-calendar` only when explicitly approving Google Calendar readonly access. Future Gmail readonly requires `--allow-live-gmail-readonly`, but the current implementation still performs no Gmail access and records only a not-implemented placeholder.
+Equivalent default safety model: default `full-safe` is non-live. Add `--allow-live-google-calendar` only when explicitly approving Google Calendar readonly access. Add `--allow-live-gmail-readonly` only when explicitly approving Gmail readonly safe-list access.
 
 ## Run each mode
 
@@ -180,13 +180,21 @@ bash run-briefing.sh --slot morning --mode full-safe --allow-live-google-calenda
 
 With that flag, the runner may include Google Calendar readonly diagnostics before the backend result section. Google Calendar writes are never allowed.
 
-Full safe mode with the future Gmail readonly gate:
+Full safe mode with explicit Gmail readonly safe-list opt-in:
 
 ```bash
 bash run-briefing.sh --slot morning --mode full-safe --allow-live-gmail-readonly
 ```
 
-This flag is parsed for safety scaffolding only. Gmail live readonly support is gated but not implemented yet, so the runner writes a planned/not-implemented placeholder and performs no Gmail connector call, OAuth token check, credential check, API command, or Apple Mail access. No email writes are ever allowed in safe mode.
+This flag runs live Gmail readonly safe-list only, using the Hermes Google Workspace skill command below. It does not run Gmail search/get/labels/send/reply/modify, fetch full bodies, download attachments, print message IDs/thread IDs, or access Apple Mail. No email writes are ever allowed in safe mode.
+
+Exact command used by the runner:
+
+```bash
+HOME="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home" HERMES_HOME="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes" "/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/venvs/google-workspace/bin/python" "/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py" gmail safe-list --window 48h --max-per-filter 10
+```
+
+The safe packet stores only normalized safe-list records between Gmail safe-list markers. The final formatter maps those records into the six required sections and never prints raw Gmail JSON, message IDs, thread IDs, full bodies, attachment details, credentials, or raw Gmail API payloads.
 
 Full safe mode with mock Gmail safe-list records:
 
@@ -326,8 +334,8 @@ Excluded fields:
 
 Safety boundary:
 
-- No Gmail access. Gmail is not implemented yet and must not be accessed.
-- Future Gmail readonly access should require an explicit `--allow-live-gmail-readonly` gate before any Gmail read is allowed.
+- No default Gmail access. Gmail readonly access requires `--allow-live-gmail-readonly` and uses only `gmail safe-list`.
+- Gmail readonly access requires an explicit `--allow-live-gmail-readonly` gate before any Gmail read is allowed.
 - No Google Calendar writes, event creation, event edits, deletions, invitations, RSVP changes, or reminder changes.
 - No email writes.
 - No cron jobs, LaunchAgents, schedules, or recurring automation.
@@ -338,17 +346,17 @@ Safety boundary:
 
 Running default `full-safe` is non-live. Running with `--allow-live-google-calendar` performs a live readonly Google Calendar event read and requires separate explicit approval before continuing with the test.
 
-## Why Gmail is deferred
+## Gmail readonly safe-list behavior
 
-Gmail is not implemented yet. It is deferred because email introduces private content, triage risk, and accidental mutation risk. This runner does not authenticate to Gmail, read Gmail, modify Gmail, or summarize Gmail.
+Gmail remains non-live by default because email introduces private content, triage risk, and accidental mutation risk. Live Gmail readonly is available only through the normalized safe-list connector and only after an explicit opt-in gate for that run.
 
-Future Gmail readonly behavior requires an explicit opt-in gate before any Gmail read is allowed:
+Gmail readonly behavior requires this explicit opt-in gate before any Gmail read is allowed:
 
 ```bash
 --allow-live-gmail-readonly
 ```
 
-Current behavior: the flag is accepted, but live Gmail access is still not implemented. The runner records: “Gmail readonly support is gated but not implemented yet. No Gmail access performed.” Default `full-safe` records: “Gmail live data not accessed. Run with --allow-live-gmail-readonly to include readonly Gmail diagnostics.”
+Current behavior: the flag runs only `gmail safe-list --window 48h --max-per-filter 10` with the configured Hermes HOME/HERMES_HOME context. Default `full-safe` records: “Gmail live data not accessed. Run with --allow-live-gmail-readonly to include readonly Gmail diagnostics.”
 
 ## How Codex CLI is detected
 

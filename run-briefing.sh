@@ -95,7 +95,7 @@ if [[ "$MODE" == "full-safe" ]]; then
   done
 
   if [[ "$ALLOW_LIVE_GOOGLE_CALENDAR" -eq 0 && -f "$latest_safe" ]]; then
-    if grep -Eq 'Google Calendar readonly safe-list|google_api\.py|google_token\.json|calendar safe-list --max|HERMES_HOME=' "$latest_safe"; then
+    if grep -Eq 'Google Calendar readonly safe-list|calendar safe-list --max' "$latest_safe"; then
       echo "ERROR: Default full-safe packet contains live Google Calendar path markers." >&2
       validation_status=1
     fi
@@ -106,7 +106,7 @@ if [[ "$MODE" == "full-safe" ]]; then
   fi
 
   if [[ "$ALLOW_LIVE_GMAIL_READONLY" -eq 0 && -f "$latest_safe" ]]; then
-    if grep -Eq 'Gmail Readonly Diagnostics|gmail safe-list|gmail\.readonly|google_token\.json|GMAIL_MOCK_SAFE_LIST_JSON_BEGIN' "$latest_safe"; then
+    if grep -Eq 'Gmail Live Safe-List|gmail\.readonly|google_token\.json|GMAIL_SAFE_LIST_JSON_BEGIN|GMAIL_MOCK_SAFE_LIST_JSON_BEGIN' "$latest_safe"; then
       echo "ERROR: Default full-safe packet contains live Gmail path markers." >&2
       validation_status=1
     fi
@@ -120,6 +120,32 @@ if [[ "$MODE" == "full-safe" ]]; then
     fi
     if ! grep -Fq "No Gmail connector, OAuth token check, credential check, or API command was run." "$latest_safe"; then
       echo "ERROR: Default full-safe packet is missing the Gmail no-access confirmation." >&2
+      validation_status=1
+    fi
+  fi
+
+  if [[ "$ALLOW_LIVE_GMAIL_READONLY" -eq 1 && "$GMAIL_MOCK" -eq 0 && -f "$latest_safe" ]]; then
+    if ! grep -Fq "## Gmail Live Safe-List" "$latest_safe" || ! grep -Fq "GMAIL_SAFE_LIST_JSON_BEGIN" "$latest_safe"; then
+      echo "ERROR: Live Gmail run did not include the Gmail safe-list section and marker." >&2
+      validation_status=1
+    fi
+    if grep -Eq 'GMAIL_MOCK_SAFE_LIST_JSON_BEGIN|gmail-safe-list-mock\.py|--mock' "$latest_safe"; then
+      echo "ERROR: Live Gmail run contains mock Gmail markers." >&2
+      validation_status=1
+    fi
+    if [[ -f "$latest_final" ]] && grep -Eq 'GMAIL_SAFE_LIST_JSON|GMAIL_MOCK_SAFE_LIST_JSON|^\s*[\[{]|"(id|threadId|payload|raw|body|attachment)' "$latest_final"; then
+      echo "ERROR: Final briefing exposes raw Gmail JSON or excluded Gmail fields." >&2
+      validation_status=1
+    fi
+  fi
+
+  if [[ "$ALLOW_LIVE_GMAIL_READONLY" -eq 1 && "$GMAIL_MOCK" -eq 1 && -f "$latest_safe" ]]; then
+    if ! grep -Fq "GMAIL_MOCK_SAFE_LIST_JSON_BEGIN" "$latest_safe"; then
+      echo "ERROR: Gmail mock run did not include mock safe-list records." >&2
+      validation_status=1
+    fi
+    if grep -Fq "GMAIL_SAFE_LIST_JSON_BEGIN" "$latest_safe" || grep -Fq "## Gmail Live Safe-List" "$latest_safe"; then
+      echo "ERROR: Gmail mock run contains live Gmail markers." >&2
       validation_status=1
     fi
   fi
