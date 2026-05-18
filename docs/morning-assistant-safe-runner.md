@@ -90,6 +90,30 @@ Safety boundaries for this wrapper:
 - It opts in only to Google Calendar readonly and Gmail readonly safe-list access already supported by `full-safe`.
 - It validates that safe and final briefing files are generated through the existing `run-briefing.sh` full-safe validation path.
 
+## Review-only iMessage draft helper
+
+After a final briefing exists, create a short local iMessage-ready draft text file with:
+
+```bash
+scripts/create-imessage-briefing-draft.py
+```
+
+To use a specific final briefing instead of the latest `briefings/*-final.md`, run:
+
+```bash
+scripts/create-imessage-briefing-draft.py briefings/YYYY-MM-DD-HH-final.md
+```
+
+The helper reads only the final briefing file. It does not read the safe packet, does not access Gmail, does not access Google Calendar, does not touch credentials, and does not update `memory.md`.
+
+Output is written to:
+
+```text
+briefings/YYYY-MM-DD-HH-imessage-draft.txt
+```
+
+The draft is review-only. It is a local text file preview for Fernando to inspect/edit manually. It does not send an iMessage, does not open Messages.app, does not run `osascript`, and does not create cron jobs, LaunchAgents, or any scheduling. Send behavior and scheduling are not implemented yet.
+
 ## Final briefing format contract
 
 The desired final briefing preserves these six top-level sections exactly:
