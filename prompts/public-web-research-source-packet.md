@@ -9,8 +9,15 @@ Task: create a public web research source packet.
 Approved topic:
 [PUBLIC_TOPIC]
 
+Approved query:
+[PUBLIC_QUERY]
+
+Safe packet label:
+[SAFE_LABEL]
+
 Allowed source:
-- Tavily public web search only.
+- Tavily public web search only, routed through Hermes web_search when
+  available.
 
 Forbidden inputs:
 - Gmail, Calendar, Drive, Docs, Sheets, iMessage, source packets, private files,
@@ -20,6 +27,9 @@ Forbidden inputs:
 Rules:
 - Do not search private content.
 - Do not include private account data in queries.
+- Do not search likely-private terms such as Gmail, email body, bank account,
+  password, token, OAuth, USCIS receipt number, SSN, Social Security, private
+  doc, source-packets/docs, or /Users/.
 - Do not create, update, delete, share, move, upload, send, schedule, or change
   permissions anywhere.
 - Use public sources only.
@@ -32,19 +42,23 @@ Rules:
 Write a local source packet under:
 source-packets/web/
 
+Preferred command:
+scripts/create-web-source-packet.sh --query "[PUBLIC_QUERY]" --label "[SAFE_LABEL]"
+
 Packet format:
 1. Topic
 2. Search date/time
 3. Safety confirmation: no private content sent
-4. Public sources reviewed
-5. Key public facts
-6. Useful quotes or snippets, short only
-7. Unknowns / needs verification
-8. Recommended use in Fernando's workflow
+4. Backend/provider if known
+5. Public sources reviewed
+6. Key public facts
+7. Useful quotes or snippets, short only
+8. Unknowns / needs verification
+9. Recommended use in Fernando's workflow
 
 Firecrawl is out of scope. Do not perform deep extraction unless separately
 approved.
 ```
 
-Replace `[PUBLIC_TOPIC]` with a public-only topic. Do not paste private content
-into this prompt.
+Replace `[PUBLIC_TOPIC]`, `[PUBLIC_QUERY]`, and `[SAFE_LABEL]` with public-only
+text. Do not paste private content into this prompt.

@@ -47,10 +47,24 @@ source-packets/web/
 The parent `source-packets/` directory is gitignored and must remain
 gitignored. Do not commit generated web packets by default.
 
+Use the reusable wrapper for approved public web research:
+
+```bash
+scripts/create-web-source-packet.sh \
+  --query "Tavily API documentation" \
+  --label "Tavily API documentation"
+```
+
+The wrapper routes through Hermes `web_search`, refuses likely private query
+terms, and writes only local packets under `source-packets/web/`.
+
 Each packet should include:
 
 - Query.
+- Label.
 - Timestamp.
+- Backend if known.
+- Public result titles.
 - Public URLs.
 - Short snippets or summaries.
 - Why each source was included.
@@ -80,3 +94,7 @@ until Fernando explicitly approves that separate step.
 As of 2026-05-24, Tavily policy is documented first. Configuration requires a
 real `TAVILY_API_KEY` in the isolated Hermes `.env`; no API key should be
 hardcoded or committed.
+
+After setup, Hermes `web.search_backend` may be set to `tavily`. Keep
+`web.backend` and `web.extract_backend` separate unless Fernando approves a
+broader provider change.
