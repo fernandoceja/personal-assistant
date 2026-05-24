@@ -2,6 +2,14 @@
 # Personal Assistant — Daily Briefing Runner
 # Invoked by launchd at 8 AM, 1 PM, and 6 PM PST.
 # Runs the Claude Code CLI non-interactively against the daily-briefing prompt.
+#
+# Approved manual daily command:
+#   scripts/run-live-morning-briefing.sh
+#
+# Legacy non-safe path below may send iMessage and update memory.md through
+# Claude CLI. Do not use it unless Fernando explicitly approves that legacy
+# behavior for the run. The full-safe mode remains the default approved path for
+# local operator validation.
 
 PROJECT_DIR="/Users/fernandoceja/Documents/AI-Projects/personal-assistant"
 CLAUDE_BIN="/Users/fernandoceja/.local/bin/claude"

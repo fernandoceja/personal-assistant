@@ -90,6 +90,43 @@ Safety boundaries for this wrapper:
 - It opts in only to Google Calendar readonly and Gmail readonly safe-list access already supported by `full-safe`.
 - It validates that safe and final briefing files are generated through the existing `run-briefing.sh` full-safe validation path.
 
+## Drive / Docs / Sheets boundary
+
+The safe morning runner does not use Google Drive, Docs, or Sheets by default.
+Those capabilities are prepared only in the isolated Hermes Google Workspace
+skill for explicitly requested document work.
+
+Default runner behavior remains:
+
+- No Drive search/list.
+- No Docs read/export.
+- No Sheets read.
+- No Drive uploads.
+- No Docs or Sheets creation/update.
+- No Drive delete, move, share, or permission changes.
+- No broad `https://www.googleapis.com/auth/drive` scope.
+
+When a future run explicitly needs Drive/Docs/Sheets, use the gated Hermes
+commands documented in `docs/hermes-google-workspace-controlled-write.md`; do
+not fold those operations into the morning briefing runner without separate
+approval.
+
+## Hermes/Open WebUI Trigger Prompt
+
+Use this prompt when Hermes or Open WebUI should request the terminal-backed live read-only briefing workflow:
+
+```text
+Run the personal-assistant terminal-backed safe morning briefing workflow from:
+/Users/fernandoceja/Documents/AI-Projects/personal-assistant
+
+Use only:
+scripts/run-live-morning-briefing.sh
+
+The workflow may read Gmail through the readonly safe-list path and read Google Calendar for today/tomorrow through the approved readonly path. Summarize only in the existing six-section briefing format. Do not send, reply, draft, archive, trash, label, or otherwise modify Gmail. Do not create, update, or delete Calendar events. Do not create cron jobs, schedules, LaunchAgents, recurring automations, or gateway allow-all access. Do not modify memory.md, OAuth files, tokens, credentials, Hermes backend config, or any other project. Report the generated briefing file path and the read-only validation result.
+```
+
+This prompt is for manual/run-on-demand operation. It does not grant approval for live write flags, scheduling, Gateway exposure, or backend config changes.
+
 ## Review-only iMessage draft helper
 
 After a final briefing exists, create a short local iMessage-ready draft text file with:

@@ -257,6 +257,7 @@ write_gmail_safe_list_final() {
   INPUT_PATH="$INPUT_PATH" OUTPUT_PATH="$OUTPUT_PATH" MARKER_PREFIX="$marker_prefix" SOURCE_LABEL="$source_label" python3 <<'PY'
 import json
 import os
+import re
 from datetime import date
 from pathlib import Path
 
@@ -281,26 +282,118 @@ allowed_fields = {
 }
 allowed_sections = ["Priority Now", "Review With Me", "Calendar Watch", "Low Priority", "Ignore/Suspicious"]
 records = []
+
+def sanitize_visible(value):
+    text = str(value or "")
+    text = re.sub(r"https?://\S+", "[redacted-url]", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(access|refresh)?_?token\b\s*[:=]\s*[\w.\-/]+", "[redacted-token]", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(client_secret|credential|oauth|auth code)\b\s*[:=]?\s*[\w.\-/]*", "[redacted-credential]", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bya29\.[\w.\-/]+", "[redacted-token]", text)
+    text = re.sub(r"\b4/[A-Za-z0-9_\-]+", "[redacted-auth-code]", text)
+    return " ".join(text.split())[:180]
+
 for record in raw_records:
     if not isinstance(record, dict):
         continue
     item = {k: v for k, v in record.items() if k in allowed_fields}
+    for field in ("sender_display", "sender_domain", "subject", "category", "received_at", "matched_filter", "triage_hint"):
+        if field in item:
+            item[field] = sanitize_visible(item[field])
     if item.get("triage_hint") not in allowed_sections:
         item["triage_hint"] = "Review With Me"
     records.append(item)
 
 groups = {name: [] for name in allowed_sections}
 for record in records:
-    groups.setdefault(record.get("triage_hint", "Review With Me"), []).append(record)
+    subject = str(record.get("subject", ""))
+    category = str(record.get("category", ""))
+    sender = str(record.get("sender_display", ""))
+    domain = str(record.get("sender_domain", ""))
+    snippet = str(record.get("snippet", ""))
+    blob = " ".join([subject, category, sender, domain, snippet]).lower()
+    hint = record.get("triage_hint", "Review With Me")
 
-def item_line(record):
-    sender = record.get("sender_display", "Unknown sender") or "Unknown sender"
-    domain = record.get("sender_domain", "unknown domain") or "unknown domain"
-    subject = record.get("subject", "(no subject)") or "(no subject)"
-    category = record.get("category", "uncategorized") or "uncategorized"
-    received = record.get("received_at", "unknown time") or "unknown time"
-    notes = "Safe-list metadata only; raw Gmail details omitted."
-    return f"- {source_label} — {sender} ({domain}) — {subject} — {category}; received {received}. {notes}"
+    unknown_sender = (
+        not sender.strip()
+        or sender.strip().lower() in {"unknown", "unknown sender"}
+        or not domain.strip()
+        or domain.strip().lower() in {"unknown", "unknown domain"}
+    )
+    billing_security = any(word in blob for word in ["bill", "billing", "payment", "security", "verify", "suspended", "account", "bank"])
+    urgent = any(word in blob for word in ["today", "tomorrow", "due", "deadline", "past due", "failed", "locked", "fraud", "urgent", "action required"])
+    suspicious = any(word in blob for word in ["phishing", "fake", "suspicious", "credential", "verify your account", "suspended"])
+    school = any(word in blob for word in ["umgc", "tuition", "statement", "drop", "withdrawal", "fafsa", "financial aid", "student account"])
+    money = any(word in blob for word in ["bank", "payment", "balance", "bofa", "fidelity", "ibkr", "e*trade", "rocket money", "ihss", "statement"])
+    legal = any(word in blob for word in ["uscis", "legal", "immigration"])
+    work = any(word in blob for word in ["apple", "work", "schedule", "shift", "hr"])
+    security = any(word in blob for word in ["security", "fraud", "login", "password", "account locked", "new device"])
+
+    if unknown_sender and billing_security:
+        hint = "Ignore/Suspicious"
+    elif suspicious and unknown_sender:
+        hint = "Ignore/Suspicious"
+    elif urgent and (legal or work or school or money or security):
+        hint = "Priority Now"
+    elif legal or school or money or security or work:
+        hint = "Review With Me"
+    elif hint not in allowed_sections:
+        hint = "Review With Me"
+
+    record["_section"] = hint
+    groups.setdefault(hint, []).append(record)
+
+def review_category(record):
+    blob = " ".join(str(record.get(k, "")) for k in ("subject", "category", "sender_display", "sender_domain", "snippet")).lower()
+    if any(word in blob for word in ["uscis", "legal", "immigration"]):
+        return "legal/immigration"
+    if any(word in blob for word in ["umgc", "tuition", "statement", "drop", "withdrawal", "fafsa", "financial aid", "student account"]):
+        return "school"
+    if any(word in blob for word in ["apple", "work", "schedule", "shift", "hr"]):
+        return "work"
+    if any(word in blob for word in ["security", "fraud", "login", "password", "new device", "locked"]):
+        return "account security"
+    if any(word in blob for word in ["bank", "payment", "balance", "bofa", "fidelity", "ibkr", "e*trade", "rocket money", "ihss", "bill"]):
+        return "money"
+    if "routine" in blob:
+        return "routine"
+    return "uncertain"
+
+def timing_text(record):
+    received = record.get("received_at", "") or ""
+    blob = " ".join(str(record.get(k, "")) for k in ("subject", "snippet", "category")).lower()
+    if any(word in blob for word in ["today", "tomorrow", "due", "deadline", "past due"]):
+        return received or "Source indicates timing; verify exact deadline."
+    return "Timing unclear - verify."
+
+def priority_line(record):
+    sender = sanitize_visible(record.get("sender_display", "Unknown sender") or "Unknown sender")
+    domain = sanitize_visible(record.get("sender_domain", "unknown domain") or "unknown domain")
+    subject = sanitize_visible(record.get("subject", "(no subject)") or "(no subject)")
+    category = sanitize_visible(record.get("category", "uncategorized") or "uncategorized")
+    timing = timing_text(record)
+    return (
+        f"- Source: {source_label}. Sender/Event: {sender} ({domain}). "
+        f"Subject: {subject}. Timing: {timing}. Importance: {category}; urgent or deadline-sensitive source signal. "
+        "Next Action: Review source directly before acting."
+    )
+
+def review_line(record):
+    sender = sanitize_visible(record.get("sender_display", "Unknown sender") or "Unknown sender")
+    domain = sanitize_visible(record.get("sender_domain", "unknown domain") or "unknown domain")
+    subject = sanitize_visible(record.get("subject", "(no subject)") or "(no subject)")
+    category = review_category(record)
+    return (
+        f"- {sender} ({domain}) — {subject}. Why this matters: source suggests {category} review. "
+        f"What to verify: confirm details in the original source. Category: {category}. "
+        "Conservative next action: Review with Fernando before any action."
+    )
+
+def compact_line(record):
+    sender = sanitize_visible(record.get("sender_display", "Unknown sender") or "Unknown sender")
+    domain = sanitize_visible(record.get("sender_domain", "unknown domain") or "unknown domain")
+    subject = sanitize_visible(record.get("subject", "(no subject)") or "(no subject)")
+    category = sanitize_visible(record.get("category", "uncategorized") or "uncategorized")
+    return f"- {source_label} — {sender} ({domain}) — {subject} — {category}. Safe-list metadata only; raw Gmail details omitted."
 
 summary = []
 priority_count = len(groups.get("Priority Now", []))
@@ -332,7 +425,12 @@ with output_path.open("w") as fh:
             fh.write("No clear date/time commitments from Gmail safe-list records. No events created.\n\n")
         elif items:
             for record in items:
-                fh.write(item_line(record) + "\n")
+                if section == "Priority Now":
+                    fh.write(priority_line(record) + "\n")
+                elif section == "Review With Me":
+                    fh.write(review_line(record) + "\n")
+                else:
+                    fh.write(compact_line(record) + "\n")
             fh.write("\n")
         else:
             fh.write("No source-backed items in this packet.\n\n")

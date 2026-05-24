@@ -28,11 +28,14 @@ For `## Ignore/Suspicious`, when no email or message source was approved, includ
 - Include urgent items and deadline-driven items only.
 - For each item, include: Source, Sender/Event, Subject, Timing, Importance, Next Action.
 - Do not invent deadlines, senders, bills, email findings, or calendar facts.
+- If timing is unclear, write: `Timing unclear - verify.`
 
 ### Review With Me
 - Include important but non-urgent items Fernando should verify.
 - When uncertain about legal, immigration, money, school, or work deadlines, classify the item here.
 - Use conservative wording and avoid advice beyond the source material.
+- For each item, include: Why this matters, What to verify, Category, Conservative next action.
+- Category must be one of: money, school, work, legal/immigration, account security, routine, uncertain.
 
 ### Calendar Watch
 - Summarize today/tomorrow calendar source material only.
@@ -64,6 +67,12 @@ For `## Ignore/Suspicious`, when no email or message source was approved, includ
 - Gmail safe-list output must never expose full bodies, attachments, attachment names/IDs/contents, raw headers, tracking links, unsubscribe links, tokens, one-time passcodes, account numbers, full URLs, message IDs, thread IDs, raw Gmail API responses, To/Cc/Bcc, or OAuth/token/config paths or contents.
 - Map Gmail safe-list triage hints into the six final sections: Priority Now, Review With Me, Calendar Watch, Low Priority, Ignore/Suspicious, and Executive Summary.
 - Gmail categories are: Immigration / USCIS / legal; Work / Apple; School / UMGC; Bills / T-Mobile / HelloStorage; Finances / Rocket Money / Fidelity / IBKR / E*TRADE / BofA / IHSS; Suspicious/phishing; Low priority / routine.
+- UMGC, tuition, statement, drop/withdrawal, FAFSA, financial aid, and student account items route to Review With Me unless source timing makes them urgent.
+- Bank, payment, balance, account, and security alerts route to Review With Me unless clearly suspicious or urgent.
+- USCIS, legal, and immigration items route to Review With Me unless source timing or explicit action makes them urgent.
+- Apple/work schedule and HR items route to Priority Now when timing-sensitive; otherwise Review With Me.
+- Unknown sender with billing/security language routes to Ignore/Suspicious.
+- Never invent deadlines. If timing is unclear, say `Timing unclear - verify.`
 - No email writes are ever allowed in safe mode: no send, reply, forward, archive, delete, label, or mark-read actions.
 - Do not add iMessage findings unless iMessage access was explicitly approved for that run.
 - Do not add calendar facts beyond the safe fields present in the source packet.

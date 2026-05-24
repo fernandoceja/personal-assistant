@@ -5,6 +5,8 @@ drafts/
 logs/*.log
 memory.md
 todos/
+source-packets/
+weekly-reviews/
 
 google_client_secret*.json
 google_token*.json
