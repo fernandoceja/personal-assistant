@@ -229,8 +229,8 @@ Priority items only. 5 lines max. No Low Priority, FYI, or Ignore items.
 
 ## Absolute Rules
 
-1. Read-only. Do not archive, delete, label, star, reply, send, forward, or modify any email.
-2. Calendar read-only. Do not create, update, delete, accept, decline, or modify any calendar event.
+1. Read-only by default. Do not archive, delete, label, star, reply, send, forward, or modify any email unless explicitly requested and approved via live write flags.
+2. Calendar read-only by default. Do not create, update, delete, accept, decline, or modify any calendar event unless explicitly requested and approved via live write flags.
 3. Every Priority Now and Review With Me item must map to a real, verifiable email or calendar event.
 4. Do not state deadlines, amounts, account numbers, or balances unless they appear verbatim in the source.
 5. Do not open links. If a link matters, copy the visible URL text into the briefing.

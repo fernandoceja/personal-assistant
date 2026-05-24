@@ -34,8 +34,8 @@ Run this at the start of the day. Produces one dated briefing file and one dated
 
 ## Rules
 
-- Do not send, reply, archive, label, or mark-read anything. Read-only.
-- Do not create, modify, or delete calendar events.
+- Read-only by default. Do not send, reply, archive, label, or mark-read anything unless explicitly requested and approved via live write flags.
+- Do not create, modify, or delete calendar events unless explicitly requested and approved via live write flags.
 - Do not open links in messages. If a link looks important, note the visible URL in the briefing and let the user decide.
 - If a message is ambiguous between Priority and FYI, default to FYI and note it in the "uncertain" list at the end of your report — do NOT escalate to Priority by default.
 - Do not invent items. Every Priority/FYI line must correspond to a real message or event.

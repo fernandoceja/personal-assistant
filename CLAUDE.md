@@ -21,14 +21,14 @@ When the phase changes, update this section AND the "Prohibited actions" list be
 - Send one iMessage to Fernando (self) per briefing run — summary format only (see iMessage Summary Format below)
 
 **Prohibited actions (hard rules — ask before ever doing any of these, even if a later phase enables them):**
-- Send email, reply to email, forward email
+- Send email, reply to email, forward email (gmail draft creation allowed in Mode 3; sending approved drafts allowed in Mode 3 under send-specific flags)
 - Send iMessage to anyone other than Fernando himself
 - Reply in iMessage to any incoming thread, react to any message
 - Archive, delete, label, or mark-read any email
-- Create, modify, or delete calendar events
+- Create, modify, or delete calendar events (allowed in Mode 3 with calendar-write approval flag)
 - Delete or modify photos
-- Read or modify files outside `personal-assistant/`
-- Touch any other project folder under `AI-Projects/`
+- Read or modify files outside `personal-assistant/` (except when accessing Google Workspace skills/configs under approved rules)
+- Touch any other project folder under `AI-Projects/` (except when interacting with hermes-agent-test skills for Google Workspace integrations under approved rules)
 - Change system settings or contacts
 
 If a request would require a prohibited action, stop and ask.
