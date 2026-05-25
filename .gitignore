@@ -7,6 +7,8 @@ memory.md
 todos/
 source-packets/
 weekly-reviews/
+video-workspace/
+logs/audit/
 
 google_client_secret*.json
 google_token*.json

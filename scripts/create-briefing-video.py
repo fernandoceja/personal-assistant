@@ -1,0 +1,390 @@
+#!/usr/bin/env python3
+"""Create a local HyperFrames-ready briefing video from sanitized summary text.
+
+The input must be a final briefing or an iMessage draft. This script extracts
+counts and status labels only, writes a local HyperFrames composition, and tries
+to render an MP4 locally. If rendering fails, the storyboard remains available
+and the result is marked partial.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import html
+import json
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+REQUIRED_HEADINGS = (
+    "Executive Summary",
+    "Priority Now",
+    "Review With Me",
+    "Calendar Watch",
+    "Low Priority",
+    "Ignore/Suspicious",
+)
+
+NO_SOURCE_PREFIXES = (
+    "no source-backed",
+    "no clear",
+    "no items",
+    "none",
+    "nothing urgent",
+    "0 items",
+)
+
+SENSITIVE_PATTERNS = (
+    re.compile(r"https?://\S+", re.IGNORECASE),
+    re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE),
+    re.compile(r"\+?\d[\d\-\s().]{7,}\d"),
+    re.compile(r"\b(message|thread|attachment|token|secret|password|api key)\b\s*[:#]?\s*\S*", re.IGNORECASE),
+    re.compile(r"\b[A-Z0-9]{8,}\b"),
+)
+
+
+def repo_root_from_script() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def validate_input_path(path: Path) -> Path:
+    resolved = path.expanduser().resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Input file not found: {resolved}")
+    if not (resolved.name.endswith("-final.md") or resolved.name.endswith("-imessage-draft.txt")):
+        raise ValueError("Input must be briefings/*-final.md or briefings/*-imessage-draft.txt")
+    return resolved
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def sanitize_text(value: str, max_len: int = 120) -> str:
+    text = value.strip()
+    for pattern in SENSITIVE_PATTERNS:
+        text = pattern.sub("[redacted]", text)
+    text = re.sub(r"\s+", " ", text).strip(" -.;")
+    return text[:max_len]
+
+
+def parse_sections(markdown: str) -> dict[str, list[str]]:
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in markdown.splitlines():
+        match = re.match(r"^##\s+(.+?)\s*$", line)
+        if match:
+            heading = match.group(1).strip()
+            current = heading if heading in REQUIRED_HEADINGS else None
+            if current:
+                sections.setdefault(current, [])
+            continue
+        if current:
+            sections[current].append(line)
+    return sections
+
+
+def usable_lines(lines: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for raw in lines:
+        text = sanitize_text(raw.lstrip("-*0123456789. )\t"))
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
+def count_items(lines: list[str]) -> int:
+    cleaned = usable_lines(lines)
+    if not cleaned:
+        return 0
+    return sum(1 for line in cleaned if not line.lower().startswith(NO_SOURCE_PREFIXES))
+
+
+def extract_from_final(text: str) -> dict[str, Any]:
+    sections = parse_sections(text)
+    missing = [heading for heading in REQUIRED_HEADINGS if heading not in sections]
+    priority_count = count_items(sections.get("Priority Now", []))
+    review_count = count_items(sections.get("Review With Me", []))
+    calendar_count = count_items(sections.get("Calendar Watch", []))
+    suspicious_count = count_items(sections.get("Ignore/Suspicious", []))
+    return {
+        "source_type": "final_briefing",
+        "required_headings_present": not missing,
+        "missing_headings": missing,
+        "cards": [
+            {"label": "Priority", "value": f"{priority_count} item(s)", "tone": "urgent" if priority_count else "clear"},
+            {"label": "Review", "value": f"{review_count} item(s)", "tone": "review" if review_count else "clear"},
+            {"label": "Calendar", "value": f"{calendar_count} item(s)", "tone": "calendar" if calendar_count else "clear"},
+            {"label": "Suspicious", "value": f"{suspicious_count} grouped", "tone": "watch" if suspicious_count else "clear"},
+        ],
+    }
+
+
+def extract_from_draft(text: str) -> dict[str, Any]:
+    lines = [sanitize_text(line) for line in text.splitlines() if sanitize_text(line)]
+    safe_lines = []
+    for line in lines:
+        label = line.split(":", 1)[0] if ":" in line else "Status"
+        if label in {"Status", "Priority Now", "Review With Me", "Calendar Watch", "Ignore/Suspicious"}:
+            safe_lines.append(line[:120])
+    return {
+        "source_type": "imessage_draft",
+        "required_headings_present": True,
+        "missing_headings": [],
+        "cards": [
+            {"label": "Draft", "value": "Review-only", "tone": "clear"},
+            {"label": "Lines", "value": f"{len(safe_lines)} safe line(s)", "tone": "review"},
+            {"label": "Mode", "value": "Dry-run", "tone": "clear"},
+            {"label": "Send", "value": "Blocked", "tone": "watch"},
+        ],
+    }
+
+
+def build_storyboard(input_path: Path) -> dict[str, Any]:
+    text = input_path.read_text(encoding="utf-8")
+    if input_path.name.endswith("-final.md"):
+        summary = extract_from_final(text)
+    else:
+        summary = extract_from_draft(text)
+    return {
+        "title": "Daily Briefing",
+        "subtitle": "Dry-run local preview",
+        "safety": "No iMessage sent. No Gmail, Calendar, Drive, Docs, or Sheets writes.",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "input": {
+            "path": str(input_path),
+            "sha256": sha256_file(input_path),
+            "source_type": summary["source_type"],
+        },
+        "summary": summary,
+    }
+
+
+def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any]) -> tuple[Path, Path]:
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "hyperframes.json").write_text(
+        json.dumps({"name": workspace.name, "entry": "index.html"}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (workspace / "storyboard.json").write_text(json.dumps(storyboard, indent=2) + "\n", encoding="utf-8")
+
+    cards = storyboard["summary"]["cards"]
+    card_html = "\n".join(
+        f'<section class="card {html.escape(card["tone"])}">'
+        f'<div class="label">{html.escape(card["label"])}</div>'
+        f'<div class="value">{html.escape(card["value"])}</div>'
+        "</section>"
+        for card in cards
+    )
+    index = f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <style>
+      * {{ box-sizing: border-box; }}
+      html, body {{
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #111111;
+        color: #f6f1e8;
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }}
+      #root {{
+        width: 1920px;
+        height: 1080px;
+        padding: 96px 120px;
+        background:
+          linear-gradient(140deg, rgba(17,17,17,.92), rgba(31,36,35,.94)),
+          repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 1px, transparent 1px 160px);
+      }}
+      .eyebrow {{
+        color: #85d7cf;
+        font-size: 36px;
+        letter-spacing: 0;
+        margin-bottom: 28px;
+      }}
+      h1 {{
+        margin: 0 0 24px;
+        font-size: 112px;
+        line-height: 1;
+        letter-spacing: 0;
+      }}
+      .subtitle {{
+        font-size: 38px;
+        color: #d9d2c4;
+        margin-bottom: 64px;
+      }}
+      .grid {{
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 28px;
+        margin-bottom: 70px;
+      }}
+      .card {{
+        min-height: 210px;
+        border: 2px solid rgba(246,241,232,.22);
+        border-radius: 8px;
+        padding: 30px;
+        background: rgba(246,241,232,.075);
+      }}
+      .label {{
+        color: #b9b0a0;
+        font-size: 30px;
+        margin-bottom: 28px;
+      }}
+      .value {{
+        color: #f6f1e8;
+        font-size: 48px;
+        line-height: 1.1;
+      }}
+      .urgent {{ border-color: #ef6f6c; }}
+      .review {{ border-color: #f0c36a; }}
+      .calendar {{ border-color: #85d7cf; }}
+      .watch {{ border-color: #b38cff; }}
+      .safety {{
+        max-width: 1220px;
+        color: #cfc7bb;
+        font-size: 34px;
+        line-height: 1.35;
+      }}
+      .stamp {{
+        position: absolute;
+        right: 120px;
+        bottom: 78px;
+        color: #8c857b;
+        font-size: 28px;
+      }}
+    </style>
+  </head>
+  <body>
+    <main id="root" data-composition-id="daily-briefing" data-start="0" data-duration="8" data-width="1920" data-height="1080">
+      <div class="eyebrow">Dry-run local preview</div>
+      <h1>{html.escape(storyboard["title"])}</h1>
+      <div class="subtitle">{html.escape(storyboard["subtitle"])}</div>
+      <div class="grid">{card_html}</div>
+      <div class="safety">{html.escape(storyboard["safety"])}</div>
+      <div class="stamp">local only</div>
+    </main>
+  </body>
+</html>
+"""
+    index_path = workspace / "index.html"
+    index_path.write_text(index, encoding="utf-8")
+    return index_path, workspace / "storyboard.json"
+
+
+def ffprobe_validate(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"ok": False, "reason": "missing"}
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration,size",
+        "-of",
+        "json",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        data = json.loads(completed.stdout or "{}")
+        return {"ok": True, "format": data.get("format", {})}
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        return {"ok": False, "reason": str(exc)}
+
+
+def render_video(workspace: Path, output_path: Path) -> dict[str, Any]:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "npx",
+        "--yes",
+        "hyperframes@0.5.7",
+        "render",
+        str(workspace),
+        "--output",
+        str(output_path),
+        "--quality",
+        "draft",
+        "--fps",
+        "24",
+        "--workers",
+        "1",
+        "--no-browser-gpu",
+        "--quiet",
+    ]
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"status": "partial", "command": cmd, "error": str(exc)}
+    if completed.returncode != 0:
+        return {
+            "status": "partial",
+            "command": cmd,
+            "returncode": completed.returncode,
+            "stderr_tail": completed.stderr[-1000:],
+        }
+    probe = ffprobe_validate(output_path)
+    return {
+        "status": "ready" if probe.get("ok") else "partial",
+        "command": cmd,
+        "output_path": str(output_path),
+        "ffprobe": probe,
+    }
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Create local sanitized HyperFrames briefing video artifact.")
+    parser.add_argument("input_path", help="briefings/*-final.md or briefings/*-imessage-draft.txt")
+    parser.add_argument("--workspace-root", default="video-workspace", help="Local gitignored video workspace root")
+    parser.add_argument("--skip-render", action="store_true", help="Write storyboard/project only; do not run HyperFrames")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    try:
+        repo_root = repo_root_from_script()
+        input_path = validate_input_path(Path(args.input_path))
+        stem = input_path.name.removesuffix("-final.md").removesuffix("-imessage-draft.txt")
+        workspace = (repo_root / args.workspace_root / stem).resolve()
+        output_path = workspace / "renders" / f"{stem}-briefing.mp4"
+        storyboard = build_storyboard(input_path)
+        index_path, storyboard_path = write_hyperframes_project(workspace, storyboard)
+        render_result = {"status": "partial", "reason": "render skipped"}
+        if not args.skip_render:
+            render_result = render_video(workspace, output_path)
+
+        result = {
+            "status": render_result.get("status", "partial"),
+            "safety_mode": "dry-run-local-no-send",
+            "input_path": str(input_path),
+            "workspace": str(workspace),
+            "index_path": str(index_path),
+            "storyboard_path": str(storyboard_path),
+            "video_output_path": str(output_path) if output_path.exists() else None,
+            "render": render_result,
+        }
+        summary_path = workspace / "video-summary.json"
+        summary_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        result["summary_path"] = str(summary_path)
+        print(json.dumps(result, indent=2))
+        return 0
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
