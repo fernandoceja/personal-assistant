@@ -13,12 +13,17 @@ import argparse
 import hashlib
 import html
 import json
+import math
 import re
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+BASE_VISUAL_DURATION_SECONDS = 8
+NARRATION_PAD_SECONDS = 1.0
+MAX_FINAL_TAIL_SECONDS = 3.0
 
 REQUIRED_HEADINGS = (
     "Executive Summary",
@@ -115,10 +120,16 @@ def extract_from_final(text: str) -> dict[str, Any]:
     review_count = count_items(sections.get("Review With Me", []))
     calendar_count = count_items(sections.get("Calendar Watch", []))
     suspicious_count = count_items(sections.get("Ignore/Suspicious", []))
+    narration_lines = []
+    for heading in REQUIRED_HEADINGS:
+        lines = usable_lines(sections.get(heading, []))
+        if lines:
+            narration_lines.append(f"{heading}: {lines[0]}")
     return {
         "source_type": "final_briefing",
         "required_headings_present": not missing,
         "missing_headings": missing,
+        "narration_lines": narration_lines,
         "cards": [
             {"label": "Priority", "value": f"{priority_count} item(s)", "tone": "urgent" if priority_count else "clear"},
             {"label": "Review", "value": f"{review_count} item(s)", "tone": "review" if review_count else "clear"},
@@ -139,6 +150,7 @@ def extract_from_draft(text: str) -> dict[str, Any]:
         "source_type": "imessage_draft",
         "required_headings_present": True,
         "missing_headings": [],
+        "narration_lines": safe_lines,
         "cards": [
             {"label": "Draft", "value": "Review-only", "tone": "clear"},
             {"label": "Lines", "value": f"{len(safe_lines)} safe line(s)", "tone": "review"},
@@ -268,7 +280,7 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any]) -> tu
     </style>
   </head>
   <body>
-    <main id="root" data-composition-id="daily-briefing" data-start="0" data-duration="8" data-width="1920" data-height="1080">
+    <main id="root" data-composition-id="daily-briefing" data-start="0" data-duration="{BASE_VISUAL_DURATION_SECONDS}" data-width="1920" data-height="1080">
       <div class="eyebrow">Dry-run local preview</div>
       <h1>{html.escape(storyboard["title"])}</h1>
       <div class="subtitle">{html.escape(storyboard["subtitle"])}</div>
@@ -305,8 +317,226 @@ def ffprobe_validate(path: Path) -> dict[str, Any]:
         return {"ok": False, "reason": str(exc)}
 
 
+def ffprobe_duration(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"ok": False, "reason": "missing"}
+    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)]
+    try:
+        completed = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        data = json.loads(completed.stdout or "{}")
+        duration = float(data.get("format", {}).get("duration", 0))
+    except (subprocess.CalledProcessError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        return {"ok": False, "reason": str(exc)}
+    return {"ok": True, "duration": duration}
+
+
+def ffprobe_streams(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"ok": False, "reason": "missing"}
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "stream=index,codec_type,codec_name",
+        "-of",
+        "json",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        data = json.loads(completed.stdout or "{}")
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        return {"ok": False, "reason": str(exc)}
+    streams = data.get("streams", [])
+    stream_types = {stream.get("codec_type") for stream in streams}
+    return {
+        "ok": "video" in stream_types and "audio" in stream_types,
+        "streams": streams,
+    }
+
+
+def build_narration_text(storyboard: dict[str, Any]) -> str:
+    summary = storyboard["summary"]
+    card_text = ", ".join(f"{card['label']} {card['value']}" for card in summary["cards"])
+    narration_lines = summary.get("narration_lines") or []
+    if narration_lines:
+        body = " ".join(narration_lines)
+    else:
+        body = "No source backed briefing lines available for narration."
+    text = (
+        f"{storyboard['title']}. "
+        f"Local dry run preview. "
+        f"{card_text}. "
+        f"{body}. "
+        "Safety mode confirmed. No messages sent and no cloud writes."
+    )
+    return sanitize_text(text, max_len=1600)
+
+
+def write_narration_text(workspace: Path, storyboard: dict[str, Any]) -> Path:
+    narration_path = workspace / "narration.txt"
+    narration_path.write_text(build_narration_text(storyboard) + "\n", encoding="utf-8")
+    return narration_path
+
+
+def generate_narration_audio(workspace: Path, narration_path: Path) -> dict[str, Any]:
+    aiff_path = workspace / "narration.aiff"
+    m4a_path = workspace / "narration.m4a"
+    preferred_cmd = ["say", "-v", "Samantha", "-o", str(aiff_path), "--input-file", str(narration_path)]
+    fallback_cmd = ["say", "-o", str(aiff_path), "--input-file", str(narration_path)]
+    say_result = subprocess.run(preferred_cmd, capture_output=True, text=True)
+    say_command = preferred_cmd
+    if say_result.returncode != 0:
+        say_result = subprocess.run(fallback_cmd, capture_output=True, text=True)
+        say_command = fallback_cmd
+    if say_result.returncode != 0:
+        return {
+            "status": "partial",
+            "command": say_command,
+            "returncode": say_result.returncode,
+            "stderr_tail": say_result.stderr[-1000:],
+        }
+    convert_cmd = ["ffmpeg", "-y", "-i", str(aiff_path), "-c:a", "aac", str(m4a_path)]
+    convert_result = subprocess.run(convert_cmd, capture_output=True, text=True)
+    if convert_result.returncode != 0:
+        return {
+            "status": "partial",
+            "command": convert_cmd,
+            "returncode": convert_result.returncode,
+            "stderr_tail": convert_result.stderr[-1000:],
+        }
+    duration_probe = ffprobe_duration(m4a_path)
+    if not duration_probe.get("ok"):
+        return {
+            "status": "partial",
+            "command": ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(m4a_path)],
+            "reason": duration_probe.get("reason", "unknown duration probe failure"),
+        }
+    narration_duration = float(duration_probe["duration"])
+    target_video_duration = max(BASE_VISUAL_DURATION_SECONDS, math.ceil(narration_duration + NARRATION_PAD_SECONDS))
+    return {
+        "status": "ready",
+        "say_command": say_command,
+        "convert_command": convert_cmd,
+        "narration_text_path": str(narration_path),
+        "aiff_path": str(aiff_path),
+        "m4a_path": str(m4a_path),
+        "duration_seconds": narration_duration,
+        "target_video_duration_seconds": target_video_duration,
+    }
+
+
+def extend_video_to_duration(video_path: Path, output_path: Path, target_duration: float) -> dict[str, Any]:
+    duration_probe = ffprobe_duration(video_path)
+    if not duration_probe.get("ok"):
+        return {
+            "status": "partial",
+            "input_path": str(video_path),
+            "reason": duration_probe.get("reason", "unknown duration probe failure"),
+        }
+    current_duration = float(duration_probe["duration"])
+    if current_duration >= target_duration:
+        return {
+            "status": "ready",
+            "input_path": str(video_path),
+            "output_path": str(video_path),
+            "duration_seconds": current_duration,
+            "target_duration_seconds": target_duration,
+            "extended": False,
+        }
+    extra_duration = max(0.0, target_duration - current_duration)
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
+        "-vf",
+        f"tpad=stop_mode=clone:stop_duration={extra_duration:.3f}",
+        "-t",
+        f"{target_duration:.3f}",
+        "-r",
+        "24",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-an",
+        str(output_path),
+    ]
+    completed = subprocess.run(cmd, capture_output=True, text=True)
+    if completed.returncode != 0:
+        return {
+            "status": "partial",
+            "command": cmd,
+            "returncode": completed.returncode,
+            "stderr_tail": completed.stderr[-1000:],
+        }
+    output_probe = ffprobe_duration(output_path)
+    return {
+        "status": "ready" if output_probe.get("ok") else "partial",
+        "command": cmd,
+        "input_path": str(video_path),
+        "output_path": str(output_path),
+        "duration_seconds": output_probe.get("duration"),
+        "target_duration_seconds": target_duration,
+        "extended": True,
+    }
+
+
+def mux_audio_into_video(video_path: Path, audio_path: Path, output_path: Path, target_duration: float) -> dict[str, Any]:
+    temp_path = output_path.with_name(f"{output_path.stem}-with-audio.tmp.mp4")
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
+        "-i",
+        str(audio_path),
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-t",
+        f"{target_duration:.3f}",
+        "-movflags",
+        "+faststart",
+        str(temp_path),
+    ]
+    completed = subprocess.run(cmd, capture_output=True, text=True)
+    if completed.returncode != 0:
+        return {
+            "status": "partial",
+            "command": cmd,
+            "returncode": completed.returncode,
+            "stderr_tail": completed.stderr[-1000:],
+        }
+    temp_path.replace(output_path)
+    stream_probe = ffprobe_streams(output_path)
+    final_duration_probe = ffprobe_duration(output_path)
+    audio_duration_probe = ffprobe_duration(audio_path)
+    final_duration = final_duration_probe.get("duration")
+    audio_duration = audio_duration_probe.get("duration")
+    duration_ok = (
+        isinstance(final_duration, float)
+        and isinstance(audio_duration, float)
+        and final_duration + 0.05 >= audio_duration
+        and final_duration <= audio_duration + MAX_FINAL_TAIL_SECONDS + 0.25
+    )
+    return {
+        "status": "ready" if stream_probe.get("ok") and duration_ok else "partial",
+        "command": cmd,
+        "output_path": str(output_path),
+        "ffprobe_streams": stream_probe,
+        "final_duration": final_duration_probe,
+        "audio_duration": audio_duration_probe,
+        "duration_ok": duration_ok,
+    }
+
+
 def render_video(workspace: Path, output_path: Path) -> dict[str, Any]:
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    silent_path = output_path.with_name(f"{output_path.stem}-silent.mp4")
     cmd = [
         "npx",
         "--yes",
@@ -314,7 +544,7 @@ def render_video(workspace: Path, output_path: Path) -> dict[str, Any]:
         "render",
         str(workspace),
         "--output",
-        str(output_path),
+        str(silent_path),
         "--quality",
         "draft",
         "--fps",
@@ -335,12 +565,48 @@ def render_video(workspace: Path, output_path: Path) -> dict[str, Any]:
             "returncode": completed.returncode,
             "stderr_tail": completed.stderr[-1000:],
         }
-    probe = ffprobe_validate(output_path)
+    probe = ffprobe_validate(silent_path)
+    if not probe.get("ok"):
+        return {
+            "status": "partial",
+            "command": cmd,
+            "silent_output_path": str(silent_path),
+            "ffprobe": probe,
+        }
+    narration_path = workspace / "narration.txt"
+    audio_result = generate_narration_audio(workspace, narration_path)
+    if audio_result.get("status") != "ready":
+        return {
+            "status": "partial",
+            "command": cmd,
+            "silent_output_path": str(silent_path),
+            "ffprobe": probe,
+            "audio": audio_result,
+        }
+    target_duration = float(audio_result["target_video_duration_seconds"])
+    extended_path = output_path.with_name(f"{output_path.stem}-visual-extended.mp4")
+    extend_result = extend_video_to_duration(silent_path, extended_path, target_duration)
+    if extend_result.get("status") != "ready":
+        return {
+            "status": "partial",
+            "command": cmd,
+            "silent_output_path": str(silent_path),
+            "ffprobe": probe,
+            "audio": audio_result,
+            "extend": extend_result,
+        }
+    visual_path = Path(extend_result.get("output_path") or silent_path)
+    mux_result = mux_audio_into_video(visual_path, Path(audio_result["m4a_path"]), output_path, target_duration)
     return {
-        "status": "ready" if probe.get("ok") else "partial",
+        "status": "ready" if mux_result.get("status") == "ready" else "partial",
         "command": cmd,
+        "silent_output_path": str(silent_path),
+        "visual_output_path": str(visual_path),
         "output_path": str(output_path),
         "ffprobe": probe,
+        "audio": audio_result,
+        "extend": extend_result,
+        "mux": mux_result,
     }
 
 
@@ -362,6 +628,7 @@ def main(argv: list[str] | None = None) -> int:
         output_path = workspace / "renders" / f"{stem}-briefing.mp4"
         storyboard = build_storyboard(input_path)
         index_path, storyboard_path = write_hyperframes_project(workspace, storyboard)
+        narration_path = write_narration_text(workspace, storyboard)
         render_result = {"status": "partial", "reason": "render skipped"}
         if not args.skip_render:
             render_result = render_video(workspace, output_path)
@@ -373,6 +640,7 @@ def main(argv: list[str] | None = None) -> int:
             "workspace": str(workspace),
             "index_path": str(index_path),
             "storyboard_path": str(storyboard_path),
+            "narration_text_path": str(narration_path),
             "video_output_path": str(output_path) if output_path.exists() else None,
             "render": render_result,
         }
