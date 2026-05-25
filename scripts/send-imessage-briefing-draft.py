@@ -9,12 +9,17 @@ Default behavior is dry-run/no-send. The only send path is gated behind
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 MAX_DRAFT_CHARS = 900
+MAX_LIVE_DRAFT_AGE_SECONDS = 4 * 60 * 60
+APPROVED_SELF_RECIPIENT = "nando0589@gmail.com"
+CONFIRM_PHRASE = "SEND DAILY BRIEF TO FERNANDO"
 RAW_DETAIL_PATTERNS = (
     re.compile(r"https?://\S+", re.IGNORECASE),
     re.compile(r"\b(message|thread)\s*id\b\s*[:#]?\s*\S*", re.IGNORECASE),
@@ -22,6 +27,7 @@ RAW_DETAIL_PATTERNS = (
     re.compile(r"\braw\s+(gmail|api)\b", re.IGNORECASE),
     re.compile(r"\b(gmail|calendar)\s+api\b", re.IGNORECASE),
 )
+DRAFT_NAME_PATTERN = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})-\d{2}-imessage-draft\.txt$")
 
 
 def repo_root_from_script() -> Path:
@@ -57,6 +63,39 @@ def validate_draft_text(text: str) -> str:
     return draft
 
 
+def validate_live_recipient(recipient: str | None) -> str:
+    if not recipient:
+        raise ValueError("--recipient is required when --send-approved-draft is used")
+    clean = recipient.strip()
+    if any(separator in clean for separator in (",", ";", "\n", "\r")):
+        raise ValueError("Live send rejected: group or multi-recipient sends are not allowed")
+    if clean != APPROVED_SELF_RECIPIENT:
+        raise ValueError("Live send rejected: recipient is not the approved Fernando/self value")
+    return clean
+
+
+def validate_live_confirmation(confirm: str | None) -> None:
+    if confirm != CONFIRM_PHRASE:
+        raise ValueError(f'Live send rejected: --confirm must exactly equal "{CONFIRM_PHRASE}"')
+
+
+def validate_live_draft_freshness(draft_path: Path) -> None:
+    match = DRAFT_NAME_PATTERN.match(draft_path.name)
+    if not match:
+        raise ValueError("Live send rejected: draft filename must be dated like YYYY-MM-DD-HH-imessage-draft.txt")
+
+    today = datetime.now().astimezone().date().isoformat()
+    if match.group("date") != today:
+        raise ValueError("Live send rejected: draft is stale because its filename date is not today")
+
+    mtime = datetime.fromtimestamp(draft_path.stat().st_mtime, tz=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - mtime).total_seconds()
+    if age_seconds < -300:
+        raise ValueError("Live send rejected: draft modification time is unexpectedly in the future")
+    if age_seconds > MAX_LIVE_DRAFT_AGE_SECONDS:
+        raise ValueError("Live send rejected: draft is older than the live-send freshness window")
+
+
 def load_draft(path: Path) -> tuple[Path, str]:
     draft_path = validate_draft_path(path)
     return draft_path, validate_draft_text(draft_path.read_text(encoding="utf-8"))
@@ -76,6 +115,26 @@ end run
     subprocess.run(["osascript", "-e", apple_script, recipient, message], check=True)
 
 
+def write_send_attempt_audit(repo_root: Path, draft_path: Path, status: str, error: str | None = None) -> Path:
+    audit_dir = repo_root / "logs" / "audit"
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc)
+    audit_path = audit_dir / f"imessage-send-attempt-{now.strftime('%Y%m%dT%H%M%SZ')}.json"
+    payload = {
+        "kind": "imessage-send-attempt",
+        "timestamp_utc": now.isoformat().replace("+00:00", "Z"),
+        "status": status,
+        "draft_path": str(draft_path),
+        "recipient": "approved-self",
+        "message_body_recorded": False,
+        "paths_only": True,
+    }
+    if error:
+        payload["error"] = error
+    audit_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return audit_path
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Dry-run preview by default; explicitly send a reviewed local iMessage draft only with approval flag."
@@ -92,7 +151,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--recipient",
-        help="Required with --send-approved-draft. Example: '+1XXXXXXXXXX' or 'Fernando'.",
+        help="Required with --send-approved-draft. Must exactly match the approved Fernando/self value.",
+    )
+    parser.add_argument(
+        "--confirm",
+        help=f'Required with --send-approved-draft. Must exactly equal "{CONFIRM_PHRASE}".',
     )
     return parser.parse_args(argv)
 
@@ -100,25 +163,34 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     try:
-        if args.send_approved_draft and not args.recipient:
-            raise ValueError("--recipient is required when --send-approved-draft is used")
-
         repo_root = repo_root_from_script()
         draft_input = Path(args.draft_file) if args.draft_file else find_latest_draft(repo_root)
         draft_path, draft_text = load_draft(draft_input)
 
-        print(f"Draft path: {draft_path}")
-        print("Preview:")
-        print(draft_text)
-
         if not args.send_approved_draft:
+            print(f"Draft path: {draft_path}")
+            print("Preview:")
+            print(draft_text)
             print("Mode: DRY RUN — no iMessage sent.")
             print("Safety: osascript/Messages was not called.")
             return 0
 
+        recipient = validate_live_recipient(args.recipient)
+        validate_live_confirmation(args.confirm)
+        validate_live_draft_freshness(draft_path)
+        print(f"Draft path: {draft_path}")
+
         # The only send-capable path is below this explicit approval gate.
-        send_imessage(args.recipient, draft_text)
-        print(f"Mode: SENT — approved draft sent to {args.recipient}.")
+        try:
+            send_imessage(recipient, draft_text)
+            audit_path = write_send_attempt_audit(repo_root, draft_path, "sent")
+        except (OSError, subprocess.CalledProcessError) as exc:
+            audit_path = write_send_attempt_audit(repo_root, draft_path, "failed", exc.__class__.__name__)
+            print(f"Audit manifest: {audit_path}")
+            raise
+
+        print("Mode: SENT — approved draft sent to Fernando/self.")
+        print(f"Audit manifest: {audit_path}")
         return 0
     except (FileNotFoundError, ValueError, OSError, subprocess.CalledProcessError) as exc:
         print(f"error: {exc}", file=sys.stderr)
