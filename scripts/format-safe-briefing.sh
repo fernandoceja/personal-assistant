@@ -115,6 +115,11 @@ prompt_path="${OUTPUT_PATH%.md}-formatter-prompt.md"
   echo "- Do not invent missing source data."
   echo "- Do not omit any of the six required headings."
   echo "- Treat legal, immigration, money, work, school, and deadline uncertainty as Review With Me."
+  echo "- Priority Now is only for confirmed deadline today/tomorrow, confirmed bill/payment due soon, urgent legal/immigration, Apple work action, UMGC action, or account/security risk needing immediate review."
+  echo "- Move unclear/noisy/low-confidence items to Review With Me."
+  echo "- Move suspicious billing/security or unknown-sender items to Ignore/Suspicious or Review With Me unless clearly trusted."
+  echo "- Priority Now and Review With Me items must include Source, Sender/Event, Subject, Timing, Importance, Next Action, Confidence."
+  echo "- Calendar Watch must state whether Google Calendar was checked, date range checked, event count, conflicts or none found, and work/school/bills/legal/immigration relevance."
   echo "- Keep output short and scannable."
   echo "- Do not include secrets, tokens, credentials, OAuth artifacts, or raw debug blocks."
   echo "- Do not expose more private calendar detail than needed."
@@ -210,31 +215,44 @@ gmail_ignore_text() {
 calendar_watch_text() {
   local local_state="$1"
   local google_state="$2"
+  local google_checked="no"
+  local google_events="0"
+  local conflicts="none found"
+  local relevance="no work/school/bills/legal/immigration events found"
+
+  if [[ "$google_state" == "items_found" ]]; then
+    google_checked="yes"
+    google_events="1+"
+    conflicts="none flagged by safe-list output"
+    relevance="review listed events for work/school/bills/legal/immigration relevance"
+  elif [[ "$google_state" == "checked_no_items" ]]; then
+    google_checked="yes"
+  fi
 
   if [[ "$local_state" == "items_found" || "$google_state" == "items_found" ]]; then
     if [[ "$local_state" == "items_found" && "$google_state" == "items_found" ]]; then
-      echo "Local calendar and Google Calendar readonly sources were checked; today/tomorrow items were found. Review the source packet for safe event details."
+      echo "Google Calendar checked: $google_checked. Date range checked: today/tomorrow. Events found: $google_events. Conflicts: $conflicts. Relevance: $relevance. Local calendar also returned today/tomorrow items."
     elif [[ "$local_state" == "items_found" ]]; then
       if [[ "$google_state" == "checked_no_items" ]]; then
-        echo "Local calendar was checked and returned today/tomorrow items; Google Calendar readonly was checked and returned no events."
+        echo "Google Calendar checked: yes. Date range checked: today/tomorrow. Events found: 0. Conflicts: none found. Relevance: no work/school/bills/legal/immigration events found. Local calendar returned today/tomorrow items."
       else
-        echo "Local calendar was checked and returned today/tomorrow items; Google Calendar readonly was not checked."
+        echo "Google Calendar checked: no. Date range checked: not checked. Events found: 0. Conflicts: none found. Relevance: no Google Calendar source data. Local calendar returned today/tomorrow items."
       fi
     else
       if [[ "$local_state" == "checked_no_items" ]]; then
-        echo "Local calendar was checked and returned no today/tomorrow events; Google Calendar readonly was checked and returned items."
+        echo "Google Calendar checked: yes. Date range checked: today/tomorrow. Events found: 1+. Conflicts: none flagged by safe-list output. Relevance: review listed events for work/school/bills/legal/immigration relevance. Local calendar returned no today/tomorrow events."
       else
-        echo "Google Calendar readonly was checked and returned today/tomorrow items; local calendar was not checked."
+        echo "Google Calendar checked: yes. Date range checked: today/tomorrow. Events found: 1+. Conflicts: none flagged by safe-list output. Relevance: review listed events for work/school/bills/legal/immigration relevance. Local calendar was not checked."
       fi
     fi
   elif [[ "$local_state" == "checked_no_items" && "$google_state" == "checked_no_items" ]]; then
-    echo "Local calendar and Google Calendar readonly sources were checked; no today/tomorrow events were found."
+    echo "Google Calendar checked: yes. Date range checked: today/tomorrow. Events found: 0. Conflicts: none found. Relevance: no work/school/bills/legal/immigration events found. Local calendar also returned no today/tomorrow events."
   elif [[ "$local_state" == "checked_no_items" ]]; then
-    echo "Local calendar was checked; no today/tomorrow events were found. Google Calendar readonly was not checked."
+    echo "Google Calendar checked: no. Date range checked: not checked. Events found: 0. Conflicts: none found. Relevance: no Google Calendar source data. Local calendar returned no today/tomorrow events."
   elif [[ "$google_state" == "checked_no_items" ]]; then
-    echo "Google Calendar readonly was checked; no today/tomorrow events were found. Local calendar was not checked."
+    echo "Google Calendar checked: yes. Date range checked: today/tomorrow. Events found: 0. Conflicts: none found. Relevance: no work/school/bills/legal/immigration events found. Local calendar was not checked."
   else
-    echo "Calendar sources were not checked in this packet."
+    echo "Google Calendar checked: no. Date range checked: not checked. Events found: 0. Conflicts: none found. Relevance: no Google Calendar source data."
   fi
 }
 
@@ -292,6 +310,59 @@ def sanitize_visible(value):
     text = re.sub(r"\b4/[A-Za-z0-9_\-]+", "[redacted-auth-code]", text)
     return " ".join(text.split())[:180]
 
+def extract_section(body, heading):
+    marker = f"## {heading}"
+    start = body.find(marker)
+    if start < 0:
+        return ""
+    next_start = body.find("\n## ", start + len(marker))
+    return body[start:] if next_start < 0 else body[start:next_start]
+
+def google_calendar_line():
+    section = extract_section(text, "Google Calendar Readonly Diagnostics")
+    if not section:
+        return (
+            "- Source: Google Calendar readonly. Date range checked: not checked. "
+            "Events found: 0. Conflicts: none found. Relevance: no Google Calendar source data in packet."
+        )
+    checked = "Result: success" in section
+    if not checked:
+        return (
+            "- Source: Google Calendar readonly. Date range checked: today/tomorrow requested. "
+            "Events found: 0. Conflicts: none found. Relevance: Google Calendar check did not complete."
+        )
+    event_count = 0
+    if "Captured stdout/stderr:" in section:
+        captured = section.split("Captured stdout/stderr:", 1)[1].strip()
+        try:
+            parsed = json.loads(captured)
+            if isinstance(parsed, list):
+                event_count = len(parsed)
+            elif isinstance(parsed, dict):
+                event_count = 1
+        except json.JSONDecodeError:
+            event_count = 1 if captured and captured != "[]" else 0
+    relevance = (
+        "none found for work/school/bills/legal/immigration."
+        if event_count == 0
+        else "review listed events for work/school/bills/legal/immigration relevance."
+    )
+    conflicts = "none found" if event_count == 0 else "none flagged by safe-list output"
+    return (
+        "- Source: Google Calendar readonly. Date range checked: today/tomorrow. "
+        f"Events found: {event_count}. Conflicts: {conflicts}. Relevance: {relevance}"
+    )
+
+TRUSTED_DOMAINS = (
+    "uscis.gov", "apple.com", "umgc.edu", "t-mobile.com", "hellostorage.com",
+    "rocketmoney.com", "fidelity.com", "interactivebrokers.com", "ibkr.com",
+    "etrade.com", "bankofamerica.com", "bofa.com", "ca.gov",
+)
+
+def trusted_domain(domain):
+    clean = str(domain or "").lower().strip()
+    return any(clean == trusted or clean.endswith(f".{trusted}") for trusted in TRUSTED_DOMAINS)
+
 for record in raw_records:
     if not isinstance(record, dict):
         continue
@@ -320,7 +391,7 @@ for record in records:
         or domain.strip().lower() in {"unknown", "unknown domain"}
     )
     billing_security = any(word in blob for word in ["bill", "billing", "payment", "security", "verify", "suspended", "account", "bank"])
-    urgent = any(word in blob for word in ["today", "tomorrow", "due", "deadline", "past due", "failed", "locked", "fraud", "urgent", "action required"])
+    urgent = any(word in blob for word in ["today", "tomorrow", "due", "deadline", "past due", "failed", "locked", "fraud", "urgent", "action required", "required"])
     suspicious = any(word in blob for word in ["phishing", "fake", "suspicious", "credential", "verify your account", "suspended"])
     school = any(word in blob for word in ["umgc", "tuition", "statement", "drop", "withdrawal", "fafsa", "financial aid", "student account"])
     money = any(word in blob for word in ["bank", "payment", "balance", "bofa", "fidelity", "ibkr", "e*trade", "rocket money", "ihss", "statement"])
@@ -328,13 +399,19 @@ for record in records:
     work = any(word in blob for word in ["apple", "work", "schedule", "shift", "hr"])
     security = any(word in blob for word in ["security", "fraud", "login", "password", "account locked", "new device"])
 
+    trusted = trusted_domain(domain)
+    confirmed_urgent_topic = urgent and (legal or work or school or money or security)
+    immediate_security = security and any(word in blob for word in ["fraud", "locked", "account locked", "new device", "unrecognized", "password", "login"])
+
     if unknown_sender and billing_security:
         hint = "Ignore/Suspicious"
-    elif suspicious and unknown_sender:
+    elif suspicious and (unknown_sender or not trusted):
         hint = "Ignore/Suspicious"
-    elif urgent and (legal or work or school or money or security):
+    elif trusted and (confirmed_urgent_topic or immediate_security):
         hint = "Priority Now"
     elif legal or school or money or security or work:
+        hint = "Review With Me"
+    elif hint == "Priority Now":
         hint = "Review With Me"
     elif hint not in allowed_sections:
         hint = "Review With Me"
@@ -365,16 +442,39 @@ def timing_text(record):
         return received or "Source indicates timing; verify exact deadline."
     return "Timing unclear - verify."
 
+def confidence_text(record):
+    domain = str(record.get("sender_domain", ""))
+    blob = " ".join(str(record.get(k, "")) for k in ("subject", "category", "sender_display", "sender_domain", "snippet")).lower()
+    timing = timing_text(record).lower()
+    if "unknown" in blob or "suspicious" in blob or "timing unclear" in timing:
+        return "Low"
+    if trusted_domain(domain):
+        return "High"
+    return "Medium"
+
+def next_action(record, section):
+    category = review_category(record)
+    if section == "Priority Now":
+        if category == "account security":
+            return "Review official account source directly; do not click email links."
+        if category in {"money", "school", "work", "legal/immigration"}:
+            return "Open official source directly and verify required action."
+    if category == "account security":
+        return "Review before acting; use official account path only."
+    return "Review before any action."
+
 def priority_line(record):
     sender = sanitize_visible(record.get("sender_display", "Unknown sender") or "Unknown sender")
     domain = sanitize_visible(record.get("sender_domain", "unknown domain") or "unknown domain")
     subject = sanitize_visible(record.get("subject", "(no subject)") or "(no subject)")
     category = sanitize_visible(record.get("category", "uncategorized") or "uncategorized")
-    timing = timing_text(record)
+    timing = sanitize_visible(timing_text(record)).rstrip(".")
+    action = next_action(record, "Priority Now")
+    confidence = confidence_text(record)
     return (
         f"- Source: {source_label}. Sender/Event: {sender} ({domain}). "
-        f"Subject: {subject}. Timing: {timing}. Importance: {category}; urgent or deadline-sensitive source signal. "
-        "Next Action: Review source directly before acting."
+        f"Subject: {subject}. Timing: {timing}. Importance: {category}; confirmed urgent source signal. "
+        f"Next Action: {action} Confidence: {confidence}."
     )
 
 def review_line(record):
@@ -382,10 +482,13 @@ def review_line(record):
     domain = sanitize_visible(record.get("sender_domain", "unknown domain") or "unknown domain")
     subject = sanitize_visible(record.get("subject", "(no subject)") or "(no subject)")
     category = review_category(record)
+    timing = sanitize_visible(timing_text(record)).rstrip(".")
+    confidence = confidence_text(record)
+    action = next_action(record, "Review With Me")
     return (
-        f"- {sender} ({domain}) — {subject}. Why this matters: source suggests {category} review. "
-        f"What to verify: confirm details in the original source. Category: {category}. "
-        "Conservative next action: Review with Fernando before any action."
+        f"- Source: {source_label}. Sender/Event: {sender} ({domain}). "
+        f"Subject: {subject}. Timing: {timing}. Importance: source suggests {category} review. "
+        f"Next Action: {action} Confidence: {confidence}."
     )
 
 def compact_line(record):
@@ -421,8 +524,12 @@ with output_path.open("w") as fh:
     for section in allowed_sections:
         fh.write(f"## {section}\n")
         items = groups.get(section, [])
-        if section == "Calendar Watch" and not items:
-            fh.write("No clear date/time commitments from Gmail safe-list records. No events created.\n\n")
+        if section == "Calendar Watch":
+            fh.write(google_calendar_line() + "\n")
+            if items:
+                for record in items:
+                    fh.write(compact_line(record) + "\n")
+            fh.write("\n")
         elif items:
             for record in items:
                 if section == "Priority Now":

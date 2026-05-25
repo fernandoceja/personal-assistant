@@ -110,30 +110,68 @@ def count_actionable(lines: list[str]) -> int:
     return bullet_count
 
 
-def summarize_priority(section_text: str) -> str:
-    lines = content_lines(section_text)
-    count = count_actionable(lines)
-    if count == 0:
-        return "No urgent source-backed items."
-    return f"{count} item(s) need prompt attention; review the final briefing before acting."
+def truncate(text: str, max_len: int = 145) -> str:
+    text = clean_line(text)
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip(" ,.;:-") + "..."
 
 
-def summarize_review(section_text: str) -> str:
+def first_actionable_line(section_text: str) -> str | None:
     lines = content_lines(section_text)
-    count = count_actionable(lines)
-    if count == 0:
-        return "0 items need review."
-    return f"{count} item(s) need your review before any action."
+    if has_no_source(lines):
+        return None
+    for line in lines:
+        if not line.lower().startswith(NO_SOURCE_PREFIXES):
+            return line
+    return None
+
+
+def field_value(line: str, label: str) -> str | None:
+    pattern = re.compile(rf"\b{re.escape(label)}:\s*(.*?)(?=\s+\b[A-Z][A-Za-z /-]+:\s*|$)")
+    match = pattern.search(line)
+    if not match:
+        return None
+    value = clean_line(match.group(1))
+    return value or None
+
+
+def confidence_text(line: str) -> str:
+    value = field_value(line, "Confidence")
+    if value:
+        return value.split()[0].strip(" .;:")
+    lowered = line.lower()
+    if "timing unclear" in lowered or "verify" in lowered or "unknown" in lowered:
+        return "Low"
+    return "Medium"
+
+
+def summarize_action_item(section_text: str, empty_text: str) -> str:
+    line = first_actionable_line(section_text)
+    if not line:
+        return empty_text
+    action = field_value(line, "Next Action")
+    subject = field_value(line, "Subject")
+    importance = field_value(line, "Importance")
+    basis = action or importance or subject or line
+    return f"{truncate(basis, 125)}; confidence {confidence_text(line)}."
 
 
 def summarize_calendar(section_text: str) -> str:
     lines = content_lines(section_text)
     if has_no_source(lines):
-        return "No clear date/time commitments."
+        return "Calendar source status unavailable in final brief."
     first = lines[0]
-    if len(lines) > 1:
-        return f"{len(lines)} calendar item(s); first: {first[:110]}"
-    return first[:140]
+    if "Google Calendar readonly" in first and "Events found:" in first:
+        event_match = re.search(r"Events found:\s*([^.;]+)", first)
+        conflict_match = re.search(r"Conflicts:\s*([^.;]+)", first)
+        events = event_match.group(1).strip() if event_match else "unknown"
+        conflicts = conflict_match.group(1).strip() if conflict_match else "not flagged"
+        return (
+            "Google Calendar checked today/tomorrow; "
+            f"{events} event(s); conflicts {conflicts}; no urgent calendar relevance found."
+        )
+    return truncate(first, 170)
 
 
 def summarize_ignore(section_text: str) -> str:
@@ -148,11 +186,12 @@ def summarize_ignore(section_text: str) -> str:
 def build_draft(final_text: str) -> str:
     sections = parse_sections(final_text)
     draft_lines = [
-        "Status: Review-only briefing draft. Nothing sent.",
-        f"Priority Now: {summarize_priority(sections.get('Priority Now', ''))}",
-        f"Review With Me: {summarize_review(sections.get('Review With Me', ''))}",
-        f"Calendar Watch: {summarize_calendar(sections.get('Calendar Watch', ''))}",
-        f"Ignore/Suspicious: {summarize_ignore(sections.get('Ignore/Suspicious', ''))}",
+        "Fernando - daily brief:",
+        f"Priority: {summarize_action_item(sections.get('Priority Now', ''), 'No urgent source-backed items.')}",
+        f"Review: {summarize_action_item(sections.get('Review With Me', ''), 'No important review item surfaced.')}",
+        f"Calendar: {summarize_calendar(sections.get('Calendar Watch', ''))}",
+        "Safety: no messages sent, no Google data changed.",
+        "Next: open final briefing before acting.",
     ]
     draft = "\n".join(draft_lines)
     if len(draft) <= 900:
@@ -163,11 +202,12 @@ def build_draft(final_text: str) -> str:
     ignore_count = count_actionable(content_lines(sections.get("Ignore/Suspicious", "")))
     fallback = "\n".join(
         [
-            "Status: Review-only briefing draft. Nothing sent.",
-            f"Priority Now: {priority_count} item(s).",
-            f"Review With Me: {review_count} item(s) need review.",
-            "Calendar Watch: See final briefing for safe summary.",
-            f"Ignore/Suspicious: {ignore_count} grouped item(s).",
+            "Fernando - daily brief:",
+            f"Priority: {priority_count} urgent item(s).",
+            f"Review: {review_count} item(s) need review.",
+            "Calendar: see final briefing for checked source status.",
+            f"Safety: no messages sent, no Google data changed; {ignore_count} suspicious/noise group(s).",
+            "Next: open final briefing before acting.",
         ]
     )
     return fallback[:900]

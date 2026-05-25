@@ -14,6 +14,7 @@ import hashlib
 import html
 import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -24,6 +25,7 @@ from typing import Any
 BASE_VISUAL_DURATION_SECONDS = 8
 NARRATION_PAD_SECONDS = 1.0
 MAX_FINAL_TAIL_SECONDS = 3.0
+DEFAULT_VOICE_ORDER = ("Ava", "Samantha")
 
 REQUIRED_HEADINGS = (
     "Executive Summary",
@@ -77,8 +79,42 @@ def sanitize_text(value: str, max_len: int = 120) -> str:
     text = value.strip()
     for pattern in SENSITIVE_PATTERNS:
         text = pattern.sub("[redacted]", text)
+    text = re.sub(r"\([^)]*(?:\.com|\.org|\.net|\.gov|\.edu)[^)]*\)", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\s+", " ", text).strip(" -.;")
-    return text[:max_len]
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip(" ,.;:-") + "..."
+
+
+def field_value(line: str, label: str) -> str | None:
+    match = re.search(rf"\b{re.escape(label)}:\s*(.*?)(?=\s+\b[A-Z][A-Za-z /-]+:\s*|$)", line)
+    if not match:
+        return None
+    value = sanitize_text(match.group(1), max_len=140)
+    return value or None
+
+
+def confidence_text(line: str) -> str:
+    value = field_value(line, "Confidence")
+    if value:
+        return value.split()[0].strip(" .;:")
+    lowered = line.lower()
+    if "timing unclear" in lowered or "verify" in lowered or "unknown" in lowered:
+        return "Low"
+    return "Medium"
+
+
+def action_first_line(line: str, max_len: int = 118) -> str:
+    action = field_value(line, "Next Action")
+    importance = field_value(line, "Importance")
+    subject = field_value(line, "Subject")
+    if action:
+        return sanitize_text(f"Action: {action} Confidence {confidence_text(line)}.", max_len=max_len)
+    if importance:
+        return sanitize_text(f"Why: {importance} Confidence {confidence_text(line)}.", max_len=max_len)
+    if subject:
+        return sanitize_text(f"Subject: {subject} Confidence {confidence_text(line)}.", max_len=max_len)
+    return sanitize_text(line, max_len=max_len)
 
 
 def parse_sections(markdown: str) -> dict[str, list[str]]:
@@ -100,7 +136,7 @@ def parse_sections(markdown: str) -> dict[str, list[str]]:
 def usable_lines(lines: list[str]) -> list[str]:
     cleaned: list[str] = []
     for raw in lines:
-        text = sanitize_text(raw.lstrip("-*0123456789. )\t"))
+        text = action_first_line(raw.lstrip("-*0123456789. )\t"))
         if text:
             cleaned.append(text)
     return cleaned
@@ -192,7 +228,7 @@ def slide_body(summary: dict[str, Any], heading: str, fallback: str) -> list[str
     lines = summary.get("section_lines", {}).get(heading, [])
     if not lines:
         return [fallback]
-    return [sanitize_text(line, max_len=170) for line in lines[:3]]
+    return [action_first_line(line, max_len=118) for line in lines[:2]]
 
 
 def build_visual_slides(storyboard: dict[str, Any], target_duration: float) -> list[dict[str, Any]]:
@@ -299,7 +335,7 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], targe
       .slide {{
         position: absolute;
         inset: 0;
-        padding: 96px 120px;
+        padding: 82px 118px 120px;
         opacity: 0;
         transform: translateY(28px);
         animation: slideShow var(--span) ease-in-out var(--delay) both;
@@ -321,23 +357,25 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], targe
       }}
       h1 {{
         margin: 0 0 24px;
-        font-size: 108px;
+        font-size: 92px;
         line-height: 1;
         letter-spacing: 0;
       }}
       .slide-lines {{
-        max-width: 1260px;
+        max-width: 1480px;
         display: grid;
-        gap: 20px;
+        gap: 18px;
       }}
       .slide-lines p {{
         margin: 0;
         color: #d9d2c4;
-        font-size: 42px;
-        line-height: 1.24;
-        padding: 22px 28px;
+        font-size: 34px;
+        line-height: 1.28;
+        padding: 18px 24px;
         border-left: 4px solid rgba(133,215,207,.58);
         background: rgba(246,241,232,.065);
+        max-height: 132px;
+        overflow: hidden;
       }}
       .urgent .slide-lines p {{ border-left-color: #ef6f6c; }}
       .review .slide-lines p {{ border-left-color: #f0c36a; }}
@@ -452,15 +490,15 @@ def build_narration_text(storyboard: dict[str, Any]) -> str:
     card_text = ", ".join(f"{card['label']} {card['value']}" for card in summary["cards"])
     narration_lines = summary.get("narration_lines") or []
     if narration_lines:
-        body = " ".join(narration_lines)
+        body = " ".join(action_first_line(line, max_len=180) for line in narration_lines[:5])
     else:
         body = "No source backed briefing lines available for narration."
     text = (
         f"{storyboard['title']}. "
-        f"Local dry run preview. "
+        f"Local dry run briefing. "
         f"{card_text}. "
         f"{body}. "
-        "Safety mode confirmed. No messages sent and no cloud writes."
+        "Safety confirmed. No messages sent and no cloud writes."
     )
     return sanitize_text(text, max_len=1600)
 
@@ -471,16 +509,46 @@ def write_narration_text(workspace: Path, storyboard: dict[str, Any]) -> Path:
     return narration_path
 
 
+def available_say_voices() -> set[str]:
+    try:
+        completed = subprocess.run(["say", "-v", "?"], check=True, capture_output=True, text=True)
+    except (OSError, subprocess.CalledProcessError):
+        return set()
+    voices: set[str] = set()
+    for line in completed.stdout.splitlines():
+        name = line.split("#", 1)[0].strip()
+        if not name:
+            continue
+        voices.add(re.split(r"\s{2,}", name, maxsplit=1)[0].strip())
+    return voices
+
+
+def select_narration_voice() -> str | None:
+    requested = os.environ.get("BRIEFING_VOICE", "").strip()
+    voices = available_say_voices()
+    if requested:
+        return requested
+    for voice in DEFAULT_VOICE_ORDER:
+        if voice in voices:
+            return voice
+    return None
+
+
 def generate_narration_audio(workspace: Path, narration_path: Path) -> dict[str, Any]:
     aiff_path = workspace / "narration.aiff"
     m4a_path = workspace / "narration.m4a"
-    preferred_cmd = ["say", "-v", "Samantha", "-o", str(aiff_path), "--input-file", str(narration_path)]
+    selected_voice = select_narration_voice()
+    preferred_cmd = ["say", "-o", str(aiff_path), "--input-file", str(narration_path)]
+    if selected_voice:
+        preferred_cmd = ["say", "-v", selected_voice, "-o", str(aiff_path), "--input-file", str(narration_path)]
     fallback_cmd = ["say", "-o", str(aiff_path), "--input-file", str(narration_path)]
     say_result = subprocess.run(preferred_cmd, capture_output=True, text=True)
     say_command = preferred_cmd
+    voice_used = selected_voice
     if say_result.returncode != 0:
         say_result = subprocess.run(fallback_cmd, capture_output=True, text=True)
         say_command = fallback_cmd
+        voice_used = None
     if say_result.returncode != 0:
         return {
             "status": "partial",
@@ -509,6 +577,7 @@ def generate_narration_audio(workspace: Path, narration_path: Path) -> dict[str,
     return {
         "status": "ready",
         "say_command": say_command,
+        "voice": voice_used or "system default",
         "convert_command": convert_cmd,
         "narration_text_path": str(narration_path),
         "aiff_path": str(aiff_path),
@@ -729,6 +798,7 @@ def main(argv: list[str] | None = None) -> int:
             "index_path": str(index_path),
             "storyboard_path": str(storyboard_path),
             "narration_text_path": str(narration_path),
+            "narration_voice": render_result.get("audio", {}).get("voice", "not selected"),
             "video_output_path": str(output_path) if output_path.exists() else None,
             "render": render_result,
         }

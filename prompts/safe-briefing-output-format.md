@@ -25,8 +25,16 @@ For `## Ignore/Suspicious`, when no email or message source was approved, includ
 - Keep each bullet short and action-oriented.
 
 ### Priority Now
-- Include urgent items and deadline-driven items only.
-- For each item, include: Source, Sender/Event, Subject, Timing, Importance, Next Action.
+- Include only confirmed urgent items:
+  - confirmed deadline today/tomorrow
+  - confirmed payment/bill due soon
+  - legal/immigration urgent item
+  - Apple work schedule or work action required
+  - UMGC school deadline/action required
+  - account/security risk requiring immediate review
+- Move unclear, noisy, low-confidence, or ambiguous items to Review With Me.
+- Move suspicious billing/security/unknown-sender items to Ignore/Suspicious or Review With Me, not Priority Now, unless source is clearly trusted.
+- For each item, include: Source, Sender/Event, Subject, Timing, Importance, Next Action, Confidence.
 - Do not invent deadlines, senders, bills, email findings, or calendar facts.
 - If timing is unclear, write: `Timing unclear - verify.`
 
@@ -34,12 +42,14 @@ For `## Ignore/Suspicious`, when no email or message source was approved, includ
 - Include important but non-urgent items Fernando should verify.
 - When uncertain about legal, immigration, money, school, or work deadlines, classify the item here.
 - Use conservative wording and avoid advice beyond the source material.
-- For each item, include: Why this matters, What to verify, Category, Conservative next action.
+- For each item, include: Source, Sender/Event, Subject, Timing, Importance, Next Action, Confidence.
 - Category must be one of: money, school, work, legal/immigration, account security, routine, uncertain.
 
 ### Calendar Watch
 - Summarize today/tomorrow calendar source material only.
+- Explicitly state whether Google Calendar was checked, date range checked, number of events found, conflicts or `none found`, and work/school/bills/legal/immigration relevance.
 - Highlight work, school, bills, and conflicts when source data supports them.
+- Do not say only `No clear date/time commitments`; say what was checked and what was found.
 - Do not include descriptions, attendees, URLs, meeting links, or private notes.
 
 ### Low Priority
