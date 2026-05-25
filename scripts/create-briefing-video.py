@@ -121,8 +121,10 @@ def extract_from_final(text: str) -> dict[str, Any]:
     calendar_count = count_items(sections.get("Calendar Watch", []))
     suspicious_count = count_items(sections.get("Ignore/Suspicious", []))
     narration_lines = []
+    section_lines: dict[str, list[str]] = {}
     for heading in REQUIRED_HEADINGS:
         lines = usable_lines(sections.get(heading, []))
+        section_lines[heading] = lines[:3]
         if lines:
             narration_lines.append(f"{heading}: {lines[0]}")
     return {
@@ -130,6 +132,7 @@ def extract_from_final(text: str) -> dict[str, Any]:
         "required_headings_present": not missing,
         "missing_headings": missing,
         "narration_lines": narration_lines,
+        "section_lines": section_lines,
         "cards": [
             {"label": "Priority", "value": f"{priority_count} item(s)", "tone": "urgent" if priority_count else "clear"},
             {"label": "Review", "value": f"{review_count} item(s)", "tone": "review" if review_count else "clear"},
@@ -151,6 +154,11 @@ def extract_from_draft(text: str) -> dict[str, Any]:
         "required_headings_present": True,
         "missing_headings": [],
         "narration_lines": safe_lines,
+        "section_lines": {
+            "Priority Now": safe_lines[:2],
+            "Review With Me": safe_lines[2:4],
+            "Calendar Watch": safe_lines[4:6],
+        },
         "cards": [
             {"label": "Draft", "value": "Review-only", "tone": "clear"},
             {"label": "Lines", "value": f"{len(safe_lines)} safe line(s)", "tone": "review"},
@@ -180,7 +188,59 @@ def build_storyboard(input_path: Path) -> dict[str, Any]:
     }
 
 
-def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any]) -> tuple[Path, Path]:
+def slide_body(summary: dict[str, Any], heading: str, fallback: str) -> list[str]:
+    lines = summary.get("section_lines", {}).get(heading, [])
+    if not lines:
+        return [fallback]
+    return [sanitize_text(line, max_len=170) for line in lines[:3]]
+
+
+def build_visual_slides(storyboard: dict[str, Any], target_duration: float) -> list[dict[str, Any]]:
+    summary = storyboard["summary"]
+    cards = {card["label"]: card for card in summary["cards"]}
+    return [
+        {
+            "kicker": "Dry-run local preview",
+            "title": storyboard["title"],
+            "body": [
+                f"Priority {cards.get('Priority', {}).get('value', '0 item(s)')}",
+                f"Review {cards.get('Review', {}).get('value', '0 item(s)')}",
+                f"Calendar {cards.get('Calendar', {}).get('value', '0 item(s)')}",
+            ],
+            "tone": "clear",
+        },
+        {
+            "kicker": "Priority Now",
+            "title": cards.get("Priority", {}).get("value", "0 item(s)"),
+            "body": slide_body(summary, "Priority Now", "No source-backed priority items."),
+            "tone": cards.get("Priority", {}).get("tone", "clear"),
+        },
+        {
+            "kicker": "Review With Me",
+            "title": cards.get("Review", {}).get("value", "0 item(s)"),
+            "body": slide_body(summary, "Review With Me", "No source-backed review items."),
+            "tone": cards.get("Review", {}).get("tone", "clear"),
+        },
+        {
+            "kicker": "Calendar Watch",
+            "title": cards.get("Calendar", {}).get("value", "0 item(s)"),
+            "body": slide_body(summary, "Calendar Watch", "No source-backed calendar conflicts."),
+            "tone": cards.get("Calendar", {}).get("tone", "clear"),
+        },
+        {
+            "kicker": "Safety Status",
+            "title": "Local dry-run complete",
+            "body": [
+                "No iMessage sent.",
+                "No Gmail, Calendar, Drive, Docs, or Sheets writes.",
+                "Video/audio artifacts remain local.",
+            ],
+            "tone": "watch",
+        },
+    ]
+
+
+def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], target_duration: float = BASE_VISUAL_DURATION_SECONDS) -> tuple[Path, Path]:
     workspace.mkdir(parents=True, exist_ok=True)
     (workspace / "hyperframes.json").write_text(
         json.dumps({"name": workspace.name, "entry": "index.html"}, indent=2) + "\n",
@@ -188,13 +248,17 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any]) -> tu
     )
     (workspace / "storyboard.json").write_text(json.dumps(storyboard, indent=2) + "\n", encoding="utf-8")
 
-    cards = storyboard["summary"]["cards"]
-    card_html = "\n".join(
-        f'<section class="card {html.escape(card["tone"])}">'
-        f'<div class="label">{html.escape(card["label"])}</div>'
-        f'<div class="value">{html.escape(card["value"])}</div>'
+    slides = build_visual_slides(storyboard, target_duration)
+    slide_duration = max(1.0, target_duration / len(slides))
+    slide_html = "\n".join(
+        f'<section class="slide {html.escape(slide["tone"])}" style="--delay: {index * slide_duration:.3f}s; --span: {slide_duration:.3f}s;">'
+        f'<div class="slide-kicker">{html.escape(slide["kicker"])}</div>'
+        f'<h1>{html.escape(slide["title"])}</h1>'
+        f'<div class="slide-lines">'
+        + "".join(f'<p>{html.escape(line)}</p>' for line in slide["body"])
+        + "</div>"
         "</section>"
-        for card in cards
+        for index, slide in enumerate(slides)
     )
     index = f"""<!doctype html>
 <html lang="en">
@@ -213,14 +277,43 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any]) -> tu
         font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }}
       #root {{
+        position: relative;
         width: 1920px;
         height: 1080px;
-        padding: 96px 120px;
         background:
           linear-gradient(140deg, rgba(17,17,17,.92), rgba(31,36,35,.94)),
+          radial-gradient(circle at 72% 24%, rgba(133,215,207,.18), transparent 34%),
           repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 1px, transparent 1px 160px);
+        animation: drift {max(target_duration, 1):.3f}s linear both;
       }}
-      .eyebrow {{
+      #root::before {{
+        content: "";
+        position: absolute;
+        inset: 54px;
+        border: 1px solid rgba(246,241,232,.14);
+      }}
+      @keyframes drift {{
+        from {{ background-position: 0 0, 0 0, 0 0; }}
+        to {{ background-position: 0 0, 80px -50px, 220px 0; }}
+      }}
+      .slide {{
+        position: absolute;
+        inset: 0;
+        padding: 96px 120px;
+        opacity: 0;
+        transform: translateY(28px);
+        animation: slideShow var(--span) ease-in-out var(--delay) both;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }}
+      @keyframes slideShow {{
+        0% {{ opacity: 0; transform: translateY(28px); }}
+        12% {{ opacity: 1; transform: translateY(0); }}
+        86% {{ opacity: 1; transform: translateY(0); }}
+        100% {{ opacity: 0; transform: translateY(-18px); }}
+      }}
+      .slide-kicker {{
         color: #85d7cf;
         font-size: 36px;
         letter-spacing: 0;
@@ -228,47 +321,48 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any]) -> tu
       }}
       h1 {{
         margin: 0 0 24px;
-        font-size: 112px;
+        font-size: 108px;
         line-height: 1;
         letter-spacing: 0;
       }}
-      .subtitle {{
-        font-size: 38px;
-        color: #d9d2c4;
-        margin-bottom: 64px;
-      }}
-      .grid {{
+      .slide-lines {{
+        max-width: 1260px;
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 28px;
-        margin-bottom: 70px;
+        gap: 20px;
       }}
-      .card {{
-        min-height: 210px;
-        border: 2px solid rgba(246,241,232,.22);
-        border-radius: 8px;
-        padding: 30px;
-        background: rgba(246,241,232,.075);
+      .slide-lines p {{
+        margin: 0;
+        color: #d9d2c4;
+        font-size: 42px;
+        line-height: 1.24;
+        padding: 22px 28px;
+        border-left: 4px solid rgba(133,215,207,.58);
+        background: rgba(246,241,232,.065);
       }}
-      .label {{
-        color: #b9b0a0;
-        font-size: 30px;
-        margin-bottom: 28px;
+      .urgent .slide-lines p {{ border-left-color: #ef6f6c; }}
+      .review .slide-lines p {{ border-left-color: #f0c36a; }}
+      .calendar .slide-lines p {{ border-left-color: #85d7cf; }}
+      .watch .slide-lines p {{ border-left-color: #b38cff; }}
+      .clear .slide-lines p {{ border-left-color: #85d7cf; }}
+      .progress {{
+        position: absolute;
+        left: 120px;
+        right: 120px;
+        bottom: 66px;
+        height: 6px;
+        background: rgba(246,241,232,.13);
       }}
-      .value {{
-        color: #f6f1e8;
-        font-size: 48px;
-        line-height: 1.1;
+      .progress::before {{
+        content: "";
+        display: block;
+        height: 100%;
+        background: #85d7cf;
+        transform-origin: left center;
+        animation: progress {max(target_duration, 1):.3f}s linear both;
       }}
-      .urgent {{ border-color: #ef6f6c; }}
-      .review {{ border-color: #f0c36a; }}
-      .calendar {{ border-color: #85d7cf; }}
-      .watch {{ border-color: #b38cff; }}
-      .safety {{
-        max-width: 1220px;
-        color: #cfc7bb;
-        font-size: 34px;
-        line-height: 1.35;
+      @keyframes progress {{
+        from {{ transform: scaleX(0); }}
+        to {{ transform: scaleX(1); }}
       }}
       .stamp {{
         position: absolute;
@@ -280,12 +374,9 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any]) -> tu
     </style>
   </head>
   <body>
-    <main id="root" data-composition-id="daily-briefing" data-start="0" data-duration="{BASE_VISUAL_DURATION_SECONDS}" data-width="1920" data-height="1080">
-      <div class="eyebrow">Dry-run local preview</div>
-      <h1>{html.escape(storyboard["title"])}</h1>
-      <div class="subtitle">{html.escape(storyboard["subtitle"])}</div>
-      <div class="grid">{card_html}</div>
-      <div class="safety">{html.escape(storyboard["safety"])}</div>
+    <main id="root" data-composition-id="daily-briefing" data-start="0" data-duration="{target_duration:.3f}" data-width="1920" data-height="1080">
+      {slide_html}
+      <div class="progress"></div>
       <div class="stamp">local only</div>
     </main>
   </body>
@@ -534,9 +625,15 @@ def mux_audio_into_video(video_path: Path, audio_path: Path, output_path: Path, 
     }
 
 
-def render_video(workspace: Path, output_path: Path) -> dict[str, Any]:
+def render_video(workspace: Path, output_path: Path, storyboard: dict[str, Any]) -> dict[str, Any]:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     silent_path = output_path.with_name(f"{output_path.stem}-silent.mp4")
+    narration_path = workspace / "narration.txt"
+    audio_result = generate_narration_audio(workspace, narration_path)
+    if audio_result.get("status") != "ready":
+        return {"status": "partial", "audio": audio_result}
+    target_duration = float(audio_result["target_video_duration_seconds"])
+    index_path, storyboard_path = write_hyperframes_project(workspace, storyboard, target_duration)
     cmd = [
         "npx",
         "--yes",
@@ -573,17 +670,6 @@ def render_video(workspace: Path, output_path: Path) -> dict[str, Any]:
             "silent_output_path": str(silent_path),
             "ffprobe": probe,
         }
-    narration_path = workspace / "narration.txt"
-    audio_result = generate_narration_audio(workspace, narration_path)
-    if audio_result.get("status") != "ready":
-        return {
-            "status": "partial",
-            "command": cmd,
-            "silent_output_path": str(silent_path),
-            "ffprobe": probe,
-            "audio": audio_result,
-        }
-    target_duration = float(audio_result["target_video_duration_seconds"])
     extended_path = output_path.with_name(f"{output_path.stem}-visual-extended.mp4")
     extend_result = extend_video_to_duration(silent_path, extended_path, target_duration)
     if extend_result.get("status") != "ready":
@@ -600,6 +686,8 @@ def render_video(workspace: Path, output_path: Path) -> dict[str, Any]:
     return {
         "status": "ready" if mux_result.get("status") == "ready" else "partial",
         "command": cmd,
+        "index_path": str(index_path),
+        "storyboard_path": str(storyboard_path),
         "silent_output_path": str(silent_path),
         "visual_output_path": str(visual_path),
         "output_path": str(output_path),
@@ -631,7 +719,7 @@ def main(argv: list[str] | None = None) -> int:
         narration_path = write_narration_text(workspace, storyboard)
         render_result = {"status": "partial", "reason": "render skipped"}
         if not args.skip_render:
-            render_result = render_video(workspace, output_path)
+            render_result = render_video(workspace, output_path, storyboard)
 
         result = {
             "status": render_result.get("status", "partial"),
