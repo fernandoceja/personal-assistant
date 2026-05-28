@@ -94,6 +94,105 @@ def field_value(line: str, label: str) -> str | None:
     return value or None
 
 
+def format_list(items: list[str]) -> str:
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return ", ".join(items[:-1]) + f", and {items[-1]}"
+
+
+def make_sanitized_label(sender: str, subject: str) -> str:
+    # 1. Clean up sender first
+    # Remove parenthesized email domains/addresses
+    s_clean = re.sub(r"\([^)]*\)", "", sender).strip()
+    s_clean = re.sub(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", "", s_clean).strip()
+    
+    # Remove common noreply terms
+    s_clean_lower = s_clean.lower()
+    if s_clean_lower in {"no_reply", "noreply", "donotreply", "no-reply", ""}:
+        s_clean = ""
+        
+    # Clean up subject
+    sub_clean = re.sub(r"^[^\w\s]*\s*", "", subject).strip() # Remove emojis/prefixes
+    # Remove email addresses from subject
+    sub_clean = re.sub(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", "", sub_clean).strip()
+    # Remove exact dollar amounts
+    sub_clean = re.sub(r"\$\d+(?:\.\d{2})?", "", sub_clean).strip()
+    
+    s_lower = sender.lower()
+    sub_lower = subject.lower()
+    
+    # Google Security alerts:
+    if "google" in s_lower and "security alert" in sub_lower:
+        return "Google alerts"
+        
+    # Apple receipt / AppleSeed:
+    if "apple" in s_lower or "apple.com" in s_lower:
+        if "receipt" in sub_lower:
+            return "Apple receipt"
+        if "appleseed" in sub_lower:
+            return "AppleSeed"
+            
+    # FasTrak:
+    if "fastrak" in s_lower or "fastrak" in sub_lower:
+        return "FasTrak"
+        
+    # Rocket Money:
+    if "rocket money" in s_lower or "rocketmoney" in s_lower:
+        return "Rocket Money"
+        
+    # Bank of America / Zelle:
+    if "bank of america" in s_lower or "bofa" in s_lower:
+        if "zelle" in sub_lower:
+            return "BofA/Zelle"
+        return "BofA"
+    if "zelle" in sub_lower:
+        return "Zelle"
+        
+    # Cursor:
+    if "cursor" in s_lower or "cursor" in sub_lower:
+        return "Cursor"
+        
+    # Fallback combination:
+    if s_clean and sub_clean:
+        if sub_clean.lower().startswith(s_clean.lower()):
+            return sub_clean[:30]
+        return f"{s_clean}: {sub_clean[:30]}"
+    elif s_clean:
+        return s_clean
+    elif sub_clean:
+        return sub_clean[:35]
+    else:
+        return "Unknown item"
+
+
+def get_category_and_label(line: str) -> tuple[str, str]:
+    sender = field_value(line, "Sender/Event") or ""
+    subject = field_value(line, "Subject") or ""
+    importance = field_value(line, "Importance") or ""
+    
+    imp_lower = importance.lower()
+    if "money" in imp_lower:
+        category = "Money"
+    elif "security" in imp_lower:
+        category = "Security"
+    elif "work" in imp_lower:
+        category = "Work"
+    elif "school" in imp_lower:
+        category = "School"
+    elif "legal" in imp_lower or "immigration" in imp_lower:
+        category = "Legal"
+    else:
+        category = "Uncertain"
+        
+    label = make_sanitized_label(sender, subject)
+    return category, label
+
+
+
 def confidence_text(line: str) -> str:
     value = field_value(line, "Confidence")
     if value:
@@ -185,19 +284,51 @@ def extract_from_final(text: str) -> dict[str, Any]:
     review_count = count_items(sections.get("Review With Me", []))
     calendar_count = count_items(sections.get("Calendar Watch", []))
     suspicious_count = count_items(sections.get("Ignore/Suspicious", []))
+    
+    # Process Review With Me specifically with category grouping
+    review_lines = sections.get("Review With Me", [])
+    grouped_review = {}
+    for line in review_lines:
+        line_clean = line.lstrip("-*0123456789. )\t")
+        if not line_clean.strip():
+            continue
+        category, label = get_category_and_label(line_clean)
+        if category not in grouped_review:
+            grouped_review[category] = []
+        if label not in grouped_review[category]:
+            grouped_review[category].append(label)
+            
+    # Format grouped lines
+    review_display_lines = []
+    category_order = ["Money", "Security", "Work", "School", "Legal", "Uncertain"]
+    for cat in category_order:
+        if cat in grouped_review and grouped_review[cat]:
+            labels = grouped_review[cat]
+            if cat == "Security" and "google alerts" in [l.lower() for l in labels]:
+                labels = [l if l.lower() != "google alerts" else "Google account alerts" for l in labels]
+            labels_str = ", ".join(labels[:4])
+            review_display_lines.append(f"{cat}: {labels_str}")
+            
     narration_lines = []
     section_lines: dict[str, list[str]] = {}
     for heading in REQUIRED_HEADINGS:
+        if heading == "Review With Me":
+            section_lines[heading] = review_display_lines
+            if review_display_lines:
+                narration_lines.append(f"Review With Me: {review_display_lines[0]}")
+            continue
         lines = usable_lines(sections.get(heading, []))
         section_lines[heading] = lines[:3]
         if lines:
             narration_lines.append(f"{heading}: {lines[0]}")
+            
     return {
         "source_type": "final_briefing",
         "required_headings_present": not missing,
         "missing_headings": missing,
         "narration_lines": narration_lines,
         "section_lines": section_lines,
+        "grouped_review": grouped_review,
         "cards": [
             {"label": "Priority", "value": f"{priority_count} item(s)", "tone": "urgent" if priority_count else "clear"},
             {"label": "Review", "value": f"{review_count} item(s)", "tone": "review" if review_count else "clear"},
@@ -253,16 +384,22 @@ def build_storyboard(input_path: Path) -> dict[str, Any]:
     }
 
 
-def slide_body(summary: dict[str, Any], heading: str, fallback: str) -> list[str]:
+def slide_body(summary: dict[str, Any], heading: str, fallback: str, max_lines: int = 3) -> list[str]:
     lines = summary.get("section_lines", {}).get(heading, [])
     if not lines:
         return [fallback]
-    return [line for line in lines[:2]]
+    return [line for line in lines[:max_lines]]
 
 
 def build_visual_slides(storyboard: dict[str, Any], target_duration: float) -> list[dict[str, Any]]:
     summary = storyboard["summary"]
     cards = {card["label"]: card for card in summary["cards"]}
+    
+    # Calculate calendar count
+    val = cards.get("Calendar", {}).get("value", "0")
+    match = re.search(r"\d+", val)
+    calendar_count = int(match.group()) if match else 0
+    
     return [
         {
             "kicker": "Dry-run local preview",
@@ -277,19 +414,19 @@ def build_visual_slides(storyboard: dict[str, Any], target_duration: float) -> l
         {
             "kicker": "Priority Now",
             "title": cards.get("Priority", {}).get("value", "0 item(s)"),
-            "body": slide_body(summary, "Priority Now", "No source-backed priority items."),
+            "body": slide_body(summary, "Priority Now", "No source-backed priority items.", max_lines=3),
             "tone": cards.get("Priority", {}).get("tone", "clear"),
         },
         {
             "kicker": "Review With Me",
             "title": cards.get("Review", {}).get("value", "0 item(s)"),
-            "body": slide_body(summary, "Review With Me", "No source-backed review items."),
+            "body": slide_body(summary, "Review With Me", "No source-backed review items.", max_lines=3),
             "tone": cards.get("Review", {}).get("tone", "clear"),
         },
         {
             "kicker": "Calendar Watch",
             "title": cards.get("Calendar", {}).get("value", "0 item(s)"),
-            "body": slide_body(summary, "Calendar Watch", "No source-backed calendar conflicts."),
+            "body": ["No events found for today or tomorrow"] if calendar_count == 0 else slide_body(summary, "Calendar Watch", "No source-backed calendar conflicts.", max_lines=3),
             "tone": cards.get("Calendar", {}).get("tone", "clear"),
         },
         {
@@ -514,8 +651,15 @@ def ffprobe_streams(path: Path) -> dict[str, Any]:
     }
 
 
+
+
+
 def build_narration_text(storyboard: dict[str, Any]) -> str:
     summary = storyboard.get("summary", {})
+    if summary.get("source_type") == "imessage_draft":
+        lines = summary.get("narration_lines", [])
+        return " ".join(lines)
+        
     cards = {card["label"]: card for card in summary.get("cards", [])}
     
     def get_count(label: str) -> int:
@@ -525,34 +669,55 @@ def build_narration_text(storyboard: dict[str, Any]) -> str:
         
     priority_count = get_count("Priority")
     review_count = get_count("Review")
-    calendar_count = get_count("Calendar")
     
-    categories = []
-    review_lines = summary.get("section_lines", {}).get("Review With Me", [])
-    for line in review_lines:
-        line_lower = line.lower()
-        if "money" in line_lower:
-            categories.append("money")
-        elif "security" in line_lower:
-            categories.append("account security")
-        elif "work" in line_lower or "cursor" in line_lower or "appleseed" in line_lower:
-            categories.append("work updates")
-        elif "school" in line_lower:
-            categories.append("school updates")
-            
-    unique_categories = []
-    for cat in categories:
-        if cat not in unique_categories:
-            unique_categories.append(cat)
-            
-    if unique_categories:
-        if len(unique_categories) > 1:
-            cat_str = ", ".join(unique_categories[:-1]) + ", and " + unique_categories[-1]
+    grouped_review = summary.get("grouped_review", {})
+    category_phrases = []
+    
+    # 1. Money category
+    if "Money" in grouped_review and grouped_review["Money"]:
+        labels = grouped_review["Money"]
+        category_phrases.append(f"money items including {format_list(labels[:4])}")
+        
+    # 2. Security category
+    if "Security" in grouped_review and grouped_review["Security"]:
+        labels = grouped_review["Security"]
+        clean_labels = []
+        for l in labels:
+            if "google" in l.lower():
+                clean_labels.append("Google")
+            else:
+                clean_labels.append(l)
+        category_phrases.append(f"account security from {format_list(clean_labels[:4])}")
+        
+    # 3. Work category
+    if "Work" in grouped_review and grouped_review["Work"]:
+        labels = grouped_review["Work"]
+        category_phrases.append(f"work updates from {format_list(labels[:4])}")
+        
+    # 4. School category
+    if "School" in grouped_review and grouped_review["School"]:
+        labels = grouped_review["School"]
+        category_phrases.append(f"school updates from {format_list(labels[:4])}")
+        
+    # 5. Legal category
+    if "Legal" in grouped_review and grouped_review["Legal"]:
+        labels = grouped_review["Legal"]
+        category_phrases.append(f"legal updates from {format_list(labels[:4])}")
+        
+    # 6. Uncertain category
+    if "Uncertain" in grouped_review and grouped_review["Uncertain"]:
+        labels = grouped_review["Uncertain"]
+        category_phrases.append(f"uncertain items including {format_list(labels[:4])}")
+        
+    if category_phrases:
+        if len(category_phrases) == 1:
+            review_details = category_phrases[0]
+        elif len(category_phrases) == 2:
+            review_details = f"{category_phrases[0]}; and {category_phrases[1]}"
         else:
-            cat_str = unique_categories[0]
-        category_phrase = f", mostly covering {cat_str}"
+            review_details = "; ".join(category_phrases[:-1]) + f"; and {category_phrases[-1]}"
     else:
-        category_phrase = ""
+        review_details = ""
         
     if priority_count > 0:
         urgent_phrase = f"You have {priority_count} urgent item{'s' if priority_count > 1 else ''} needing immediate attention."
@@ -560,10 +725,14 @@ def build_narration_text(storyboard: dict[str, Any]) -> str:
         urgent_phrase = "No urgent items were found."
         
     if review_count > 0:
-        review_phrase = f"You have {review_count} item{'s' if review_count > 1 else ''} to review{category_phrase}."
+        if review_details:
+            review_phrase = f"You have {review_count} review item{'s' if review_count > 1 else ''}: {review_details}."
+        else:
+            review_phrase = f"You have {review_count} item{'s' if review_count > 1 else ''} to review."
     else:
-        review_phrase = "You have no items to review."
+        review_phrase = "No review items were found."
         
+    calendar_count = get_count("Calendar")
     if calendar_count > 0:
         calendar_phrase = f"Your calendar shows {calendar_count} event{'s' if calendar_count > 1 else ''} for today and tomorrow."
     else:
@@ -574,7 +743,7 @@ def build_narration_text(storyboard: dict[str, Any]) -> str:
         f"{urgent_phrase} "
         f"{review_phrase} "
         f"{calendar_phrase} "
-        f"Everything was generated locally with no external writes."
+        f"Everything stayed local."
     )
     return sanitize_text(text, max_len=1600)
 
