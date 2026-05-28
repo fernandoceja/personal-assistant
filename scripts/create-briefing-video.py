@@ -180,7 +180,7 @@ def make_sanitized_label(sender: str, subject: str) -> str:
     
     # Google Security alerts:
     if "google" in s_lower and "security alert" in sub_lower:
-        return "Google alerts"
+        return "Google account alerts"
         
     # Apple receipt / AppleSeed:
     if "apple" in s_lower or "apple.com" in s_lower:
@@ -220,6 +220,22 @@ def make_sanitized_label(sender: str, subject: str) -> str:
         return sub_clean[:35]
     else:
         return "Unknown item"
+
+
+def format_briefing_timestamp(stem: str) -> str:
+    # Stem is like '2026-05-28-10'
+    match = re.match(r"^(\d{4})-(\d{2})-(\d{2})-(\d{2})$", stem)
+    if match:
+        year, month, day, hour = match.groups()
+        dt = datetime(int(year), int(month), int(day), int(hour))
+        return dt.strftime("Generated: %B %-d, %Y, %-I:%M %p")
+    # Fallback to date YYYY-MM-DD
+    match_date = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", stem)
+    if match_date:
+        year, month, day = match_date.groups()
+        dt = datetime(int(year), int(month), int(day))
+        return dt.strftime("Generated: %B %-d, %Y")
+    return f"Generated from: {stem}"
 
 
 def get_category_and_label(line: str) -> tuple[str, str]:
@@ -360,7 +376,7 @@ def extract_from_final(text: str) -> dict[str, Any]:
             if cat == "Security" and "google alerts" in [l.lower() for l in labels]:
                 labels = [l if l.lower() != "google alerts" else "Google account alerts" for l in labels]
             labels_str = ", ".join(labels[:4])
-            review_display_lines.append(f"{cat}: {labels_str}")
+            review_display_lines.append(f"{cat}·{len(grouped_review[cat])}: {labels_str}")
             
     narration_lines = []
     section_lines: dict[str, list[str]] = {}
@@ -371,9 +387,20 @@ def extract_from_final(text: str) -> dict[str, Any]:
                 narration_lines.append(f"Review With Me: {review_display_lines[0]}")
             continue
         lines = usable_lines(sections.get(heading, []))
-        section_lines[heading] = lines[:3]
-        if lines:
-            narration_lines.append(f"{heading}: {lines[0]}")
+        
+        # Filter out diagnostic lines
+        filtered_lines = []
+        for line in lines:
+            lower = line.lower()
+            if "google calendar readonly" in lower or "date range checked" in lower or "local calendar" in lower:
+                continue
+            if any(lower.startswith(prefix) for prefix in NO_SOURCE_PREFIXES):
+                continue
+            filtered_lines.append(line)
+            
+        section_lines[heading] = filtered_lines[:3]
+        if filtered_lines:
+            narration_lines.append(f"{heading}: {filtered_lines[0]}")
             
     return {
         "source_type": "final_briefing",
@@ -423,11 +450,14 @@ def build_storyboard(input_path: Path) -> dict[str, Any]:
         summary = extract_from_final(text)
     else:
         summary = extract_from_draft(text)
+    stem = input_path.name.removesuffix("-final.md").removesuffix("-imessage-draft.txt")
+    briefing_timestamp = format_briefing_timestamp(stem)
     return {
         "title": "Daily Briefing",
         "subtitle": "Dry-run local preview",
         "safety": "No iMessage sent. No Gmail, Calendar, Drive, Docs, or Sheets writes.",
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "briefing_timestamp": briefing_timestamp,
         "input": {
             "path": str(input_path),
             "sha256": sha256_file(input_path),
@@ -446,53 +476,191 @@ def slide_body(summary: dict[str, Any], heading: str, fallback: str, max_lines: 
 
 def build_visual_slides(storyboard: dict[str, Any], target_duration: float) -> list[dict[str, Any]]:
     summary = storyboard["summary"]
-    cards = {card["label"]: card for card in summary["cards"]}
+    cards = {card["label"]: card for card in summary.get("cards", [])}
     
-    # Calculate calendar count
-    val = cards.get("Calendar", {}).get("value", "0")
-    match = re.search(r"\d+", val)
-    calendar_count = int(match.group()) if match else 0
+    # Safely extract counts
+    def get_count(label: str) -> int:
+        val = cards.get(label, {}).get("value", "0")
+        match = re.search(r"\d+", val)
+        return int(match.group()) if match else 0
+        
+    priority_count = get_count("Priority")
+    review_count = get_count("Review")
+    calendar_count = get_count("Calendar")
     
-    return [
-        {
-            "kicker": "Dry-run local preview",
-            "title": storyboard["title"],
-            "body": [
-                f"Priority {cards.get('Priority', {}).get('value', '0 item(s)')}",
-                f"Review {cards.get('Review', {}).get('value', '0 item(s)')}",
-                f"Calendar {cards.get('Calendar', {}).get('value', '0 item(s)')}",
-            ],
-            "tone": "clear",
-        },
-        {
-            "kicker": "Priority Now",
-            "title": cards.get("Priority", {}).get("value", "0 item(s)"),
-            "body": slide_body(summary, "Priority Now", "No source-backed priority items.", max_lines=3),
-            "tone": cards.get("Priority", {}).get("tone", "clear"),
-        },
-        {
-            "kicker": "Review With Me",
-            "title": cards.get("Review", {}).get("value", "0 item(s)"),
-            "body": slide_body(summary, "Review With Me", "No source-backed review items.", max_lines=3),
-            "tone": cards.get("Review", {}).get("tone", "clear"),
-        },
-        {
-            "kicker": "Calendar Watch",
-            "title": cards.get("Calendar", {}).get("value", "0 item(s)"),
-            "body": ["No events found for today or tomorrow"] if calendar_count == 0 else slide_body(summary, "Calendar Watch", "No source-backed calendar conflicts.", max_lines=3),
-            "tone": cards.get("Calendar", {}).get("tone", "clear"),
-        },
-        {
-            "kicker": "Safety Status",
-            "title": "Local dry-run complete",
-            "body": [
-                "No iMessage sent.",
-                "No Gmail, Calendar, Drive, Docs, or Sheets writes.",
-                "Video/audio artifacts remain local.",
-            ],
-            "tone": "watch",
-        },
-    ]
+    # If source is draft, count review items as safe lines count
+    if summary.get("source_type") == "imessage_draft":
+        review_count = len(summary.get("narration_lines", []))
+        
+    slides = []
+    
+    # 1. Opening / Executive Snapshot slide
+    slides.append({
+        "type": "snapshot",
+        "kicker": "Executive Snapshot",
+        "title": storyboard.get("title", "Daily Briefing"),
+        "cards": [
+            {
+                "label": "Priority Now",
+                "val": "No urgent items found" if priority_count == 0 else f"{priority_count} urgent item{'s' if priority_count > 1 else ''}",
+                "tone": "clear" if priority_count == 0 else "urgent",
+            },
+            {
+                "label": "Review With Me",
+                "val": "No review items" if review_count == 0 else f"{review_count} review item{'s' if review_count > 1 else ''}",
+                "tone": "clear" if review_count == 0 else "review",
+            },
+            {
+                "label": "Calendar Watch",
+                "val": "Calendar clear" if calendar_count == 0 else f"{calendar_count} calendar event{'s' if calendar_count > 1 else ''}",
+                "tone": "clear" if calendar_count == 0 else "calendar",
+            }
+        ],
+        "tone": "clear",
+    })
+    
+    # 2. Priority slide
+    priority_title = cards.get("Priority", {}).get("value", "0 item(s)") if "Priority" in cards else "0 item(s)"
+    if priority_count == 0:
+        priority_title = "No urgent items found"
+        priority_body = ["Nothing needs immediate action right now"]
+    else:
+        priority_body = slide_body(summary, "Priority Now", "No source-backed priority items.", max_lines=3)
+        
+    slides.append({
+        "type": "standard",
+        "kicker": "Priority Now",
+        "title": priority_title,
+        "body": priority_body,
+        "tone": cards.get("Priority", {}).get("tone", "clear") if "Priority" in cards else "clear",
+    })
+    
+    # 3. Review With Me overview slide
+    review_title = "Review With Me"
+    review_kicker = cards.get("Review", {}).get("value", "0 item(s)") + " to review" if "Review" in cards else "Needs Review"
+    if review_count == 0:
+        review_body = ["No review items found"]
+    else:
+        review_body = slide_body(summary, "Review With Me", "No source-backed review items.", max_lines=3)
+        
+    slides.append({
+        "type": "standard",
+        "kicker": review_kicker,
+        "title": review_title,
+        "body": review_body,
+        "tone": cards.get("Review", {}).get("tone", "clear") if "Review" in cards else "clear",
+    })
+    
+    # 4. Optional category detail slides
+    grouped_review = summary.get("grouped_review", {})
+    if summary.get("source_type") == "final_briefing" and len(grouped_review) > 1:
+        # Money slide
+        if "Money" in grouped_review and grouped_review["Money"]:
+            slides.append({
+                "type": "standard",
+                "kicker": "Detail Review",
+                "title": "Money Review",
+                "body": [item for item in grouped_review["Money"][:4]],
+                "tone": "review",
+            })
+            
+        # Other categories: Security, Work, etc.
+        other_items = []
+        other_cats = []
+        for cat in ["Security", "Work", "School", "Legal", "Uncertain"]:
+            if cat in grouped_review and grouped_review[cat]:
+                other_cats.append(cat)
+                for item in grouped_review[cat][:4]:
+                    other_items.append(f"{cat}: {item}")
+                    
+        if other_items:
+            title_parts = [c for c in ["Security", "Work", "School", "Legal"] if c in other_cats]
+            if not title_parts:
+                title_parts = other_cats
+            title_str = " + ".join(title_parts) + " Review" if title_parts else "Other Reviews"
+            if len(title_str) > 30:
+                title_str = "Other Reviews"
+                
+            slides.append({
+                "type": "standard",
+                "kicker": "Detail Review",
+                "title": title_str,
+                "body": other_items[:4],
+                "tone": "review",
+            })
+            
+    # 5. Calendar slide
+    if calendar_count == 0:
+        calendar_kicker = "Calendar Watch"
+        calendar_title = "Calendar clear"
+        calendar_body = [
+            "No events found for today or tomorrow",
+            "No conflicts found"
+        ]
+        calendar_tone = "clear"
+    else:
+        calendar_kicker = "Calendar Watch"
+        calendar_title = cards.get("Calendar", {}).get("value", "0 item(s)") if "Calendar" in cards else f"{calendar_count} event(s)"
+        calendar_body = slide_body(summary, "Calendar Watch", "No source-backed calendar conflicts.", max_lines=3)
+        calendar_tone = cards.get("Calendar", {}).get("tone", "clear") if "Calendar" in cards else "clear"
+        
+    slides.append({
+        "type": "standard",
+        "kicker": calendar_kicker,
+        "title": calendar_title,
+        "body": calendar_body,
+        "tone": calendar_tone,
+    })
+    
+    # 5b. Optional Next Action slide
+    if summary.get("source_type") == "final_briefing" and (priority_count > 0 or review_count > 0):
+        next_actions = []
+        if priority_count > 0:
+            next_actions.append("Address priority items first")
+            
+        if review_count > 0:
+            has_money = "Money" in grouped_review and grouped_review["Money"]
+            has_security = "Security" in grouped_review and grouped_review["Security"]
+            has_work = "Work" in grouped_review and grouped_review["Work"]
+            
+            if has_money and has_security:
+                next_actions.append("Review money items and official security alerts")
+            elif has_money:
+                next_actions.append("Review money items first")
+            elif has_security:
+                next_actions.append("Check security alerts through official settings")
+                
+            if has_work:
+                next_actions.append("Inspect work updates and builds")
+                
+        if calendar_count == 0:
+            next_actions.append("No calendar action needed")
+        else:
+            next_actions.append("Verify calendar events for today")
+            
+        if next_actions:
+            slides.append({
+                "type": "standard",
+                "kicker": "Action Plan",
+                "title": "Next Actions",
+                "body": next_actions[:3],
+                "tone": "review",
+            })
+            
+    # 6. Safety slide
+    slides.append({
+        "type": "standard",
+        "kicker": "Safety Status",
+        "title": "Local briefing complete",
+        "body": [
+            "Local-only video",
+            "No email or calendar writes",
+            "No external video service used",
+        ],
+        "tone": "watch",
+    })
+    
+    return slides
 
 
 def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], target_duration: float = BASE_VISUAL_DURATION_SECONDS) -> tuple[Path, Path]:
@@ -505,16 +673,84 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], targe
 
     slides = build_visual_slides(storyboard, target_duration)
     slide_duration = max(1.0, target_duration / len(slides))
-    slide_html = "\n".join(
-        f'<section class="slide {html.escape(slide["tone"])}" style="--delay: {index * slide_duration:.3f}s; --span: {slide_duration:.3f}s;">'
-        f'<div class="slide-kicker">{html.escape(slide["kicker"])}</div>'
-        f'<h1>{html.escape(slide["title"])}</h1>'
-        f'<div class="slide-lines">'
-        + "".join(f'<p>{html.escape(line)}</p>' for line in slide["body"])
-        + "</div>"
-        "</section>"
-        for index, slide in enumerate(slides)
-    )
+    
+    def render_line(line: str) -> str:
+        # Check if there is a category prefix like "Money·4: " or "Security·1: "
+        match_count = re.match(r"^([A-Za-z /]+)·(\d+):\s*(.*)$", line)
+        if match_count:
+            cat = match_count.group(1)
+            count = match_count.group(2)
+            rest = match_count.group(3)
+            return f'<p><span class="badge {html.escape(cat.lower().replace(" ", "-"))}">{html.escape(cat)} &middot; {html.escape(count)}</span> {html.escape(rest)}</p>'
+        # Fallback to category prefix like "Money: " or "Security: "
+        match = re.match(r"^([A-Za-z /]+):\s*(.*)$", line)
+        if match:
+            cat = match.group(1)
+            rest = match.group(2)
+            return f'<p><span class="badge {html.escape(cat.lower().replace(" ", "-"))}">{html.escape(cat)}</span> {html.escape(rest)}</p>'
+        return f'<p>{html.escape(line)}</p>'
+
+    slide_html_list = []
+    for index, slide in enumerate(slides):
+        delay = index * slide_duration
+        span = slide_duration
+        
+        slide_class = f"slide {html.escape(slide['tone'])}"
+        style_attr = f'style="--delay: {delay:.3f}s; --span: {span:.3f}s;"'
+        
+        kicker_html = f'<div class="slide-kicker">{html.escape(slide["kicker"])}</div>'
+        title_html = f'<h1>{html.escape(slide["title"])}</h1>'
+        
+        if slide.get("type") == "snapshot":
+            cards_html = '<div class="snapshot-grid">\n'
+            for card in slide["cards"]:
+                card_tone = html.escape(card["tone"])
+                card_label = html.escape(card["label"])
+                card_val = html.escape(card["val"])
+                
+                # Assign a nice emoji or symbol for each
+                symbol = "⚡"
+                if "priority" in card_label.lower():
+                    symbol = "🚨"
+                elif "review" in card_label.lower():
+                    symbol = "🔍"
+                elif "calendar" in card_label.lower():
+                    symbol = "📅"
+                    
+                cards_html += f"""
+                <div class="snapshot-card {card_tone}">
+                  <div class="snapshot-card-header">
+                    <span class="snapshot-symbol">{symbol}</span>
+                    <span class="snapshot-label">{card_label}</span>
+                  </div>
+                  <div class="snapshot-val">{card_val}</div>
+                </div>
+                """
+            cards_html += '</div>'
+            
+            slide_html_list.append(
+                f'<section class="{slide_class}" {style_attr}>\n'
+                f'  {kicker_html}\n'
+                f'  {title_html}\n'
+                f'  {cards_html}\n'
+                f'</section>'
+            )
+        else:
+            # Standard slide
+            body_html = '<div class="slide-lines">\n'
+            for line in slide.get("body", []):
+                body_html += render_line(line) + "\n"
+            body_html += '</div>'
+            
+            slide_html_list.append(
+                f'<section class="{slide_class}" {style_attr}>\n'
+                f'  {kicker_html}\n'
+                f'  {title_html}\n'
+                f'  {body_html}\n'
+                f'</section>'
+            )
+            
+    slide_html = "\n".join(slide_html_list)
 
     # Build burned-in subtitles / captions HTML
     narration_text = build_narration_text(storyboard)
@@ -574,7 +810,7 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], targe
       .slide {{
         position: absolute;
         inset: 0;
-        padding: 82px 118px 120px;
+        padding: 82px 118px 210px;
         opacity: 0;
         transform: translateY(28px);
         animation: slideShow var(--span) ease-in-out var(--delay) both;
@@ -608,24 +844,165 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], targe
       .slide-lines p {{
         margin: 0;
         color: #d9d2c4;
-        font-size: 34px;
-        line-height: 1.28;
-        padding: 18px 24px;
-        border-left: 4px solid rgba(133,215,207,.58);
-        background: rgba(246,241,232,.065);
+        font-size: 28px;
+        line-height: 1.3;
+        padding: 16px 24px;
+        border: 1px solid rgba(246,241,232,.04);
+        border-left: 6px solid rgba(133,215,207,.7);
+        background: rgba(246,241,232,.035);
+        border-radius: 0 16px 16px 0;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         max-height: 132px;
         overflow: hidden;
+        animation: lineFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }}
+      .slide-lines p:nth-child(1) {{ animation-delay: calc(var(--delay) + 0.05s); }}
+      .slide-lines p:nth-child(2) {{ animation-delay: calc(var(--delay) + 0.15s); }}
+      .slide-lines p:nth-child(3) {{ animation-delay: calc(var(--delay) + 0.25s); }}
+      .slide-lines p:nth-child(4) {{ animation-delay: calc(var(--delay) + 0.35s); }}
+      @keyframes lineFadeIn {{
+        from {{ opacity: 0; transform: translateX(-15px); }}
+        to {{ opacity: 1; transform: translateX(0); }}
+      }}
+      .badge {{
+        display: inline-block;
+        padding: 6px 14px;
+        font-size: 20px;
+        font-weight: 700;
+        border-radius: 8px;
+        margin-right: 16px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        vertical-align: middle;
+      }}
+      .badge.money {{
+        background: rgba(240, 195, 106, 0.2);
+        color: #f0c36a;
+        border: 1px solid rgba(240, 195, 106, 0.4);
+      }}
+      .badge.security {{
+        background: rgba(239, 111, 108, 0.2);
+        color: #ef6f6c;
+        border: 1px solid rgba(239, 111, 108, 0.4);
+      }}
+      .badge.work {{
+        background: rgba(133, 215, 207, 0.2);
+        color: #85d7cf;
+        border: 1px solid rgba(133, 215, 207, 0.4);
+      }}
+      .badge.school {{
+        background: rgba(179, 140, 255, 0.2);
+        color: #b38cff;
+        border: 1px solid rgba(179, 140, 255, 0.4);
+      }}
+      .badge.legal {{
+        background: rgba(255, 255, 255, 0.15);
+        color: #f6f1e8;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+      }}
+      .badge.uncertain {{
+        background: rgba(255, 255, 255, 0.1);
+        color: #8c857b;
+        border: 1px solid rgba(255, 255, 255, 0.2);
       }}
       .urgent .slide-lines p {{ border-left-color: #ef6f6c; }}
       .review .slide-lines p {{ border-left-color: #f0c36a; }}
       .calendar .slide-lines p {{ border-left-color: #85d7cf; }}
       .watch .slide-lines p {{ border-left-color: #b38cff; }}
       .clear .slide-lines p {{ border-left-color: #85d7cf; }}
+      .snapshot-grid {{
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 32px;
+        margin-top: 40px;
+        width: 100%;
+        max-width: 1480px;
+      }}
+      .snapshot-card {{
+        background: rgba(246, 241, 232, 0.045);
+        border: 1px solid rgba(246, 241, 232, 0.08);
+        border-radius: 24px;
+        padding: 40px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        min-height: 240px;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        animation: cardFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }}
+      .snapshot-card:nth-child(1) {{ animation-delay: calc(var(--delay) + 0.05s); }}
+      .snapshot-card:nth-child(2) {{ animation-delay: calc(var(--delay) + 0.18s); }}
+      .snapshot-card:nth-child(3) {{ animation-delay: calc(var(--delay) + 0.31s); }}
+      @keyframes cardFadeIn {{
+        from {{ opacity: 0; transform: translateY(20px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
+      }}
+      .snapshot-card::before {{
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 6px;
+        background: #85d7cf;
+      }}
+      .snapshot-card.urgent::before {{
+        background: #ef6f6c;
+      }}
+      .snapshot-card.review::before {{
+        background: #f0c36a;
+      }}
+      .snapshot-card.calendar::before {{
+        background: #85d7cf;
+      }}
+      .snapshot-card.clear::before {{
+        background: #85d7cf;
+      }}
+      .snapshot-card.urgent {{
+        background: linear-gradient(135deg, rgba(239, 111, 108, 0.08), rgba(239, 111, 108, 0.02));
+        border-color: rgba(239, 111, 108, 0.25);
+      }}
+      .snapshot-card.review {{
+        background: linear-gradient(135deg, rgba(240, 195, 106, 0.08), rgba(240, 195, 106, 0.02));
+        border-color: rgba(240, 195, 106, 0.25);
+      }}
+      .snapshot-card.calendar {{
+        background: linear-gradient(135deg, rgba(133, 215, 207, 0.08), rgba(133, 215, 207, 0.02));
+        border-color: rgba(133, 215, 207, 0.25);
+      }}
+      .snapshot-card.clear {{
+        background: linear-gradient(135deg, rgba(133, 215, 207, 0.08), rgba(133, 215, 207, 0.02));
+        border-color: rgba(133, 215, 207, 0.25);
+      }}
+      .snapshot-card-header {{
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 24px;
+      }}
+      .snapshot-symbol {{
+        font-size: 32px;
+      }}
+      .snapshot-label {{
+        color: #8c857b;
+        font-size: 24px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+      }}
+      .snapshot-val {{
+        color: #f6f1e8;
+        font-size: 38px;
+        font-weight: 700;
+        line-height: 1.2;
+      }}
       .progress {{
         position: absolute;
         left: 120px;
         right: 120px;
-        bottom: 66px;
+        top: 66px;
         height: 6px;
         background: rgba(246,241,232,.13);
       }}
@@ -652,8 +1029,8 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], targe
         position: absolute;
         left: 0;
         right: 0;
-        bottom: 96px;
-        height: 120px;
+        bottom: 22px;
+        height: 70px;
         display: flex;
         justify-content: center;
         align-items: center;
@@ -663,17 +1040,17 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], targe
       .caption-chunk {{
         position: absolute;
         opacity: 0;
-        background: rgba(17, 17, 17, 0.85);
+        background: rgba(11, 11, 11, 0.95);
         color: #f6f1e8;
-        font-size: 38px;
-        line-height: 1.35;
+        font-size: 26px;
+        line-height: 1.3;
         font-weight: 500;
-        padding: 14px 28px;
+        padding: 8px 18px;
         border-radius: 12px;
-        max-width: 1400px;
+        max-width: 1200px;
         text-align: center;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.1);
         animation: captionShow var(--span) linear var(--delay) both;
       }}
       @keyframes captionShow {{
@@ -689,7 +1066,7 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], targe
       {slide_html}
       {caption_html}
       <div class="progress"></div>
-      <div class="stamp">local only</div>
+      <div class="stamp">{html.escape(storyboard.get("briefing_timestamp", ""))} &middot; local only</div>
     </main>
   </body>
 </html>
