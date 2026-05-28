@@ -104,6 +104,59 @@ def format_list(items: list[str]) -> str:
     return ", ".join(items[:-1]) + f", and {items[-1]}"
 
 
+def split_into_caption_chunks(text: str) -> list[str]:
+    raw_chunks = re.split(r'(?<=[.;:!?])\s+', text.strip())
+    chunks = []
+    for chunk in raw_chunks:
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        subparts = re.split(r'(?<=[;:])\s+', chunk)
+        for sub in subparts:
+            sub = sub.strip()
+            if not sub:
+                continue
+            sub = sub.rstrip(";:").strip()
+            if sub:
+                sub = sub[0].upper() + sub[1:]
+                if not sub[-1] in {".", "!", "?"}:
+                    sub += "."
+                chunks.append(sub)
+    return chunks
+
+
+def format_srt_time(seconds: float) -> str:
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    ms = int(round((seconds - int(seconds)) * 1000))
+    if ms >= 1000:
+        ms = 999
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def write_srt_file(output_path: Path, storyboard: dict[str, Any], duration: float) -> Path:
+    narration_text = build_narration_text(storyboard)
+    caption_chunks = split_into_caption_chunks(narration_text)
+    n = len(caption_chunks)
+    lines = []
+    if n > 0:
+        chunk_dur = duration / n
+        for i, chunk in enumerate(caption_chunks):
+            start = i * chunk_dur
+            end = (i + 1) * chunk_dur
+            lines.append(str(i + 1))
+            lines.append(f"{format_srt_time(start)} --> {format_srt_time(end)}")
+            lines.append(chunk)
+            lines.append("")
+    
+    srt_path = output_path.with_suffix(".srt")
+    srt_path.parent.mkdir(parents=True, exist_ok=True)
+    srt_path.write_text("\n".join(lines), encoding="utf-8")
+    return srt_path
+
+
+
 def make_sanitized_label(sender: str, subject: str) -> str:
     # 1. Clean up sender first
     # Remove parenthesized email domains/addresses
@@ -462,6 +515,26 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], targe
         "</section>"
         for index, slide in enumerate(slides)
     )
+
+    # Build burned-in subtitles / captions HTML
+    narration_text = build_narration_text(storyboard)
+    caption_chunks = split_into_caption_chunks(narration_text)
+    narration_duration = max(1.0, target_duration - NARRATION_PAD_SECONDS)
+    n_chunks = len(caption_chunks)
+    chunk_duration = narration_duration / n_chunks if n_chunks > 0 else 1.0
+    
+    caption_html = ""
+    if n_chunks > 0:
+        caption_html = '<div class="caption-container">\n'
+        for i, chunk in enumerate(caption_chunks):
+            delay = i * chunk_duration
+            caption_html += (
+                f'  <div class="caption-chunk" style="--delay: {delay:.3f}s; --span: {chunk_duration:.3f}s;">'
+                f'{html.escape(chunk)}'
+                f'</div>\n'
+            )
+        caption_html += '</div>\n'
+
     index = f"""<!doctype html>
 <html lang="en">
   <head>
@@ -575,11 +648,46 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], targe
         color: #8c857b;
         font-size: 28px;
       }}
+      .caption-container {{
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 96px;
+        height: 120px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        pointer-events: none;
+        z-index: 100;
+      }}
+      .caption-chunk {{
+        position: absolute;
+        opacity: 0;
+        background: rgba(17, 17, 17, 0.85);
+        color: #f6f1e8;
+        font-size: 38px;
+        line-height: 1.35;
+        font-weight: 500;
+        padding: 14px 28px;
+        border-radius: 12px;
+        max-width: 1400px;
+        text-align: center;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        animation: captionShow var(--span) linear var(--delay) both;
+      }}
+      @keyframes captionShow {{
+        0% {{ opacity: 0; transform: translateY(8px); }}
+        5% {{ opacity: 1; transform: translateY(0); }}
+        95% {{ opacity: 1; transform: translateY(0); }}
+        100% {{ opacity: 0; transform: translateY(-4px); }}
+      }}
     </style>
   </head>
   <body>
     <main id="root" data-composition-id="daily-briefing" data-start="0" data-duration="{target_duration:.3f}" data-width="1920" data-height="1080">
       {slide_html}
+      {caption_html}
       <div class="progress"></div>
       <div class="stamp">local only</div>
     </main>
@@ -1036,6 +1144,14 @@ def main(argv: list[str] | None = None) -> int:
         render_result = {"status": "partial", "reason": "render skipped"}
         if not args.skip_render:
             render_result = render_video(workspace, output_path, storyboard, args.voice)
+
+        # Write SRT file with the most accurate duration
+        srt_duration = BASE_VISUAL_DURATION_SECONDS - NARRATION_PAD_SECONDS
+        if not args.skip_render and render_result.get("status") == "ready":
+            audio_duration = render_result.get("audio", {}).get("duration_seconds")
+            if audio_duration:
+                srt_duration = audio_duration
+        write_srt_file(output_path, storyboard, srt_duration)
 
         result = {
             "status": render_result.get("status", "partial"),
