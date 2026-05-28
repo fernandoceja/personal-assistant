@@ -25,7 +25,7 @@ from typing import Any
 BASE_VISUAL_DURATION_SECONDS = 8
 NARRATION_PAD_SECONDS = 1.0
 MAX_FINAL_TAIL_SECONDS = 3.0
-DEFAULT_VOICE_ORDER = ("Ava", "Samantha")
+DEFAULT_VOICE_ORDER = ("Daniel", "Ava", "Samantha")
 
 REQUIRED_HEADINGS = (
     "Executive Summary",
@@ -90,7 +90,7 @@ def field_value(line: str, label: str) -> str | None:
     match = re.search(rf"\b{re.escape(label)}:\s*(.*?)(?=\s+\b[A-Z][A-Za-z /-]+:\s*|$)", line)
     if not match:
         return None
-    value = sanitize_text(match.group(1), max_len=140)
+    value = " ".join(match.group(1).split())
     return value or None
 
 
@@ -104,17 +104,38 @@ def confidence_text(line: str) -> str:
     return "Medium"
 
 
-def action_first_line(line: str, max_len: int = 118) -> str:
-    action = field_value(line, "Next Action")
-    importance = field_value(line, "Importance")
+def format_slide_bullet(line: str) -> str:
+    sender = field_value(line, "Sender/Event")
     subject = field_value(line, "Subject")
-    if action:
-        return sanitize_text(f"Action: {action} Confidence {confidence_text(line)}.", max_len=max_len)
-    if importance:
-        return sanitize_text(f"Why: {importance} Confidence {confidence_text(line)}.", max_len=max_len)
+    importance = field_value(line, "Importance")
+    
+    if not sender and not subject:
+        return sanitize_text(line, max_len=118)
+        
+    parts = []
+    if sender:
+        sender_clean = re.sub(r"\([^)]*\)", "", sender).strip().strip(" .;")
+        if "@" in sender_clean:
+            sender_clean = sender_clean.split("@")[0].strip().strip(" .;")
+        if sender_clean.lower() in {"no_reply", "noreply", "donotreply", "no-reply", "donotreply@apple.com"}:
+            sender_clean = ""
+        if sender_clean:
+            parts.append(sender_clean)
+            
     if subject:
-        return sanitize_text(f"Subject: {subject} Confidence {confidence_text(line)}.", max_len=max_len)
-    return sanitize_text(line, max_len=max_len)
+        sub_clean = subject.strip(" .;")
+        sub_clean = re.sub(r"^[^\w\s]*\s*", "", sub_clean)
+        if sub_clean:
+            parts.append(sub_clean)
+            
+    if importance:
+        imp_clean = importance.strip(" .;")
+        imp_clean = re.sub(r"^source suggests\s+", "", imp_clean)
+        if imp_clean:
+            parts.append(imp_clean)
+            
+    res = " — ".join(parts)
+    return sanitize_text(res, max_len=118)
 
 
 def parse_sections(markdown: str) -> dict[str, list[str]]:
@@ -136,7 +157,7 @@ def parse_sections(markdown: str) -> dict[str, list[str]]:
 def usable_lines(lines: list[str]) -> list[str]:
     cleaned: list[str] = []
     for raw in lines:
-        text = action_first_line(raw.lstrip("-*0123456789. )\t"))
+        text = format_slide_bullet(raw.lstrip("-*0123456789. )\t"))
         if text:
             cleaned.append(text)
     return cleaned
@@ -146,7 +167,15 @@ def count_items(lines: list[str]) -> int:
     cleaned = usable_lines(lines)
     if not cleaned:
         return 0
-    return sum(1 for line in cleaned if not line.lower().startswith(NO_SOURCE_PREFIXES))
+    count = 0
+    for line in cleaned:
+        lower = line.lower()
+        if "google calendar readonly" in lower or "date range checked" in lower or "local calendar" in lower:
+            continue
+        if any(lower.startswith(prefix) for prefix in NO_SOURCE_PREFIXES):
+            continue
+        count += 1
+    return count
 
 
 def extract_from_final(text: str) -> dict[str, Any]:
@@ -228,7 +257,7 @@ def slide_body(summary: dict[str, Any], heading: str, fallback: str) -> list[str
     lines = summary.get("section_lines", {}).get(heading, [])
     if not lines:
         return [fallback]
-    return [action_first_line(line, max_len=118) for line in lines[:2]]
+    return [line for line in lines[:2]]
 
 
 def build_visual_slides(storyboard: dict[str, Any], target_duration: float) -> list[dict[str, Any]]:
@@ -486,19 +515,66 @@ def ffprobe_streams(path: Path) -> dict[str, Any]:
 
 
 def build_narration_text(storyboard: dict[str, Any]) -> str:
-    summary = storyboard["summary"]
-    card_text = ", ".join(f"{card['label']} {card['value']}" for card in summary["cards"])
-    narration_lines = summary.get("narration_lines") or []
-    if narration_lines:
-        body = " ".join(action_first_line(line, max_len=180) for line in narration_lines[:5])
+    summary = storyboard.get("summary", {})
+    cards = {card["label"]: card for card in summary.get("cards", [])}
+    
+    def get_count(label: str) -> int:
+        val = cards.get(label, {}).get("value", "0")
+        match = re.search(r"\d+", val)
+        return int(match.group()) if match else 0
+        
+    priority_count = get_count("Priority")
+    review_count = get_count("Review")
+    calendar_count = get_count("Calendar")
+    
+    categories = []
+    review_lines = summary.get("section_lines", {}).get("Review With Me", [])
+    for line in review_lines:
+        line_lower = line.lower()
+        if "money" in line_lower:
+            categories.append("money")
+        elif "security" in line_lower:
+            categories.append("account security")
+        elif "work" in line_lower or "cursor" in line_lower or "appleseed" in line_lower:
+            categories.append("work updates")
+        elif "school" in line_lower:
+            categories.append("school updates")
+            
+    unique_categories = []
+    for cat in categories:
+        if cat not in unique_categories:
+            unique_categories.append(cat)
+            
+    if unique_categories:
+        if len(unique_categories) > 1:
+            cat_str = ", ".join(unique_categories[:-1]) + ", and " + unique_categories[-1]
+        else:
+            cat_str = unique_categories[0]
+        category_phrase = f", mostly covering {cat_str}"
     else:
-        body = "No source backed briefing lines available for narration."
+        category_phrase = ""
+        
+    if priority_count > 0:
+        urgent_phrase = f"You have {priority_count} urgent item{'s' if priority_count > 1 else ''} needing immediate attention."
+    else:
+        urgent_phrase = "No urgent items were found."
+        
+    if review_count > 0:
+        review_phrase = f"You have {review_count} item{'s' if review_count > 1 else ''} to review{category_phrase}."
+    else:
+        review_phrase = "You have no items to review."
+        
+    if calendar_count > 0:
+        calendar_phrase = f"Your calendar shows {calendar_count} event{'s' if calendar_count > 1 else ''} for today and tomorrow."
+    else:
+        calendar_phrase = "Calendar shows no events for today or tomorrow."
+        
     text = (
-        f"{storyboard['title']}. "
-        f"Local dry run briefing. "
-        f"{card_text}. "
-        f"{body}. "
-        "Safety confirmed. No messages sent and no cloud writes."
+        f"Good morning, Fernando. "
+        f"{urgent_phrase} "
+        f"{review_phrase} "
+        f"{calendar_phrase} "
+        f"Everything was generated locally with no external writes."
     )
     return sanitize_text(text, max_len=1600)
 
@@ -523,21 +599,22 @@ def available_say_voices() -> set[str]:
     return voices
 
 
-def select_narration_voice() -> str | None:
-    requested = os.environ.get("BRIEFING_VOICE", "").strip()
+def select_narration_voice(args_voice: str | None = None) -> str | None:
+    requested = (args_voice or os.environ.get("BRIEFING_VOICE", "")).strip()
     voices = available_say_voices()
     if requested:
-        return requested
+        if requested in voices:
+            return requested
     for voice in DEFAULT_VOICE_ORDER:
         if voice in voices:
             return voice
     return None
 
 
-def generate_narration_audio(workspace: Path, narration_path: Path) -> dict[str, Any]:
+def generate_narration_audio(workspace: Path, narration_path: Path, voice: str | None = None) -> dict[str, Any]:
     aiff_path = workspace / "narration.aiff"
     m4a_path = workspace / "narration.m4a"
-    selected_voice = select_narration_voice()
+    selected_voice = select_narration_voice(voice)
     preferred_cmd = ["say", "-o", str(aiff_path), "--input-file", str(narration_path)]
     if selected_voice:
         preferred_cmd = ["say", "-v", selected_voice, "-o", str(aiff_path), "--input-file", str(narration_path)]
@@ -694,11 +771,11 @@ def mux_audio_into_video(video_path: Path, audio_path: Path, output_path: Path, 
     }
 
 
-def render_video(workspace: Path, output_path: Path, storyboard: dict[str, Any]) -> dict[str, Any]:
+def render_video(workspace: Path, output_path: Path, storyboard: dict[str, Any], voice: str | None = None) -> dict[str, Any]:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     silent_path = output_path.with_name(f"{output_path.stem}-silent.mp4")
     narration_path = workspace / "narration.txt"
-    audio_result = generate_narration_audio(workspace, narration_path)
+    audio_result = generate_narration_audio(workspace, narration_path, voice)
     if audio_result.get("status") != "ready":
         return {"status": "partial", "audio": audio_result}
     target_duration = float(audio_result["target_video_duration_seconds"])
@@ -772,6 +849,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("input_path", help="briefings/*-final.md or briefings/*-imessage-draft.txt")
     parser.add_argument("--workspace-root", default="video-workspace", help="Local gitignored video workspace root")
     parser.add_argument("--skip-render", action="store_true", help="Write storyboard/project only; do not run HyperFrames")
+    parser.add_argument("--voice", help="macOS voice name to use for narration audio")
     return parser.parse_args(argv)
 
 
@@ -788,7 +866,7 @@ def main(argv: list[str] | None = None) -> int:
         narration_path = write_narration_text(workspace, storyboard)
         render_result = {"status": "partial", "reason": "render skipped"}
         if not args.skip_render:
-            render_result = render_video(workspace, output_path, storyboard)
+            render_result = render_video(workspace, output_path, storyboard, args.voice)
 
         result = {
             "status": render_result.get("status", "partial"),

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Safely create a local HyperFrames video briefing from the latest final briefing.
-# Usage: ./scripts/create-local-video-briefing.sh [--skip-render]
+# Usage: ./scripts/create-local-video-briefing.sh [--skip-render] [--voice VOICE]
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
