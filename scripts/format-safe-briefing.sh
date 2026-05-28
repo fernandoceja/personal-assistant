@@ -356,7 +356,7 @@ def google_calendar_line():
 TRUSTED_DOMAINS = (
     "uscis.gov", "apple.com", "umgc.edu", "t-mobile.com", "hellostorage.com",
     "rocketmoney.com", "fidelity.com", "interactivebrokers.com", "ibkr.com",
-    "etrade.com", "bankofamerica.com", "bofa.com", "ca.gov",
+    "etrade.com", "bankofamerica.com", "bofa.com", "ca.gov", "cursor.com",
 )
 
 def trusted_domain(domain):
@@ -381,7 +381,7 @@ for record in records:
     sender = str(record.get("sender_display", ""))
     domain = str(record.get("sender_domain", ""))
     snippet = str(record.get("snippet", ""))
-    blob = " ".join([subject, category, sender, domain, snippet]).lower()
+    blob = " ".join([subject, sender, domain, snippet]).lower()
     hint = record.get("triage_hint", "Review With Me")
 
     unknown_sender = (
@@ -393,10 +393,10 @@ for record in records:
     billing_security = any(word in blob for word in ["bill", "billing", "payment", "security", "verify", "suspended", "account", "bank"])
     urgent = any(word in blob for word in ["today", "tomorrow", "due", "deadline", "past due", "failed", "locked", "fraud", "urgent", "action required", "required"])
     suspicious = any(word in blob for word in ["phishing", "fake", "suspicious", "credential", "verify your account", "suspended"])
-    school = any(word in blob for word in ["umgc", "tuition", "statement", "drop", "withdrawal", "fafsa", "financial aid", "student account"])
-    money = any(word in blob for word in ["bank", "payment", "balance", "bofa", "fidelity", "ibkr", "e*trade", "rocket money", "ihss", "statement"])
+    school = any(word in blob for word in ["umgc", "tuition", "drop", "withdrawal", "fafsa", "financial aid", "student account"])
+    money = any(word in blob for word in ["bank", "payment", "balance", "bofa", "fidelity", "ibkr", "e*trade", "rocket money", "ihss", "statement", "receipt", "invoice", "order", "purchase", "billing", "charge", "zelle"])
     legal = any(word in blob for word in ["uscis", "legal", "immigration"])
-    work = any(word in blob for word in ["apple", "work", "schedule", "shift", "hr"])
+    work = any(word in blob for word in ["apple", "work", "schedule", "shift", "hr", "cursor"])
     security = any(word in blob for word in ["security", "fraud", "login", "password", "account locked", "new device"])
 
     trusted = trusted_domain(domain)
@@ -420,17 +420,17 @@ for record in records:
     groups.setdefault(hint, []).append(record)
 
 def review_category(record):
-    blob = " ".join(str(record.get(k, "")) for k in ("subject", "category", "sender_display", "sender_domain", "snippet")).lower()
+    blob = " ".join(str(record.get(k, "")) for k in ("subject", "sender_display", "sender_domain", "snippet")).lower()
     if any(word in blob for word in ["uscis", "legal", "immigration"]):
         return "legal/immigration"
-    if any(word in blob for word in ["umgc", "tuition", "statement", "drop", "withdrawal", "fafsa", "financial aid", "student account"]):
+    if any(word in blob for word in ["umgc", "tuition", "drop", "withdrawal", "fafsa", "financial aid", "student account"]):
         return "school"
-    if any(word in blob for word in ["apple", "work", "schedule", "shift", "hr"]):
-        return "work"
     if any(word in blob for word in ["security", "fraud", "login", "password", "new device", "locked"]):
         return "account security"
-    if any(word in blob for word in ["bank", "payment", "balance", "bofa", "fidelity", "ibkr", "e*trade", "rocket money", "ihss", "bill"]):
+    if any(word in blob for word in ["bank", "payment", "balance", "bofa", "fidelity", "ibkr", "e*trade", "rocket money", "ihss", "statement", "receipt", "invoice", "order", "purchase", "billing", "charge", "zelle"]):
         return "money"
+    if any(word in blob for word in ["apple", "work", "schedule", "shift", "hr", "cursor"]):
+        return "work"
     if "routine" in blob:
         return "routine"
     return "uncertain"
