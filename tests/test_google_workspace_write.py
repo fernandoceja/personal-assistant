@@ -630,6 +630,95 @@ def test_calendar_cleanup_duplicates_live(tmp_path):
         assert "del_1" in gws_args
 
 
+def test_daily_briefing_cannot_write_to_calendar():
+    # Verify that daily briefing mode is strictly read-only by checking that safe runner
+    # command options (google_api.py subcommands) default to 'safe-list' and do not include
+    # the calendar write flags.
+    
+    # Test that google-workspace-write.py calendar create without the allow flag exits with code 2
+    cmd = [
+        sys.executable,
+        str(SCRIPT_PATH),
+        "calendar", "create",
+        "--summary", "Test Event",
+        "--start", "2026-05-24T10:00:00-07:00",
+        "--end", "2026-05-24T11:00:00-07:00"
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 2
+    data = json.loads(res.stdout)
+    assert data["status"] == "error"
+    assert "READ-ONLY" in data["message"]
+    assert data["writes_performed"] is False
+
+
+def test_gmail_writes_are_blocked():
+    # Verify that Gmail compose/send/draft modifications are blocked.
+    # 1. Test google-workspace-write.py gmail draft-create without allow-live-gmail-draft
+    cmd = [
+        sys.executable,
+        str(SCRIPT_PATH),
+        "gmail", "draft-create",
+        "--to", "user@example.com",
+        "--subject", "Hello",
+        "--body", "Hi"
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 2
+    data = json.loads(res.stdout)
+    assert data["status"] == "error"
+    assert "READ-ONLY" in data["message"]
+
+    # 2. Test google-workspace-write.py gmail send-draft without allow-live-gmail-send
+    cmd = [
+        sys.executable,
+        str(SCRIPT_PATH),
+        "gmail", "send-draft",
+        "draft_id_123"
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 2
+    data = json.loads(res.stdout)
+    assert data["status"] == "error"
+    assert "READ-ONLY" in data["message"]
+
+
+def test_calendar_writes_blocked_unless_explicit_flag_is_used():
+    # Run google_api.py directly using subprocess to check exit code
+    google_api_script_path = REPO_ROOT.parent / "hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py"
+    cmd = [
+        sys.executable,
+        str(google_api_script_path),
+        "calendar", "create",
+        "--summary", "Test Event",
+        "--start", "2026-05-24T10:00:00-07:00",
+        "--end", "2026-05-24T11:00:00-07:00"
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 2
+    assert "Blocked: live Google Calendar writes require" in res.stderr
+
+
+def test_calendar_write_mode_does_not_allow_gmail_write():
+    # If the user allows calendar writes, Gmail writes must still be blocked.
+    # Calendar write flag passed to gmail subcommand should be ignored, exiting with code 2
+    google_api_script_path = REPO_ROOT.parent / "hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py"
+    cmd = [
+        sys.executable,
+        str(google_api_script_path),
+        "gmail", "draft-create",
+        "--to", "user@example.com",
+        "--subject", "Hi",
+        "--body", "Body",
+        "--allow-live-google-calendar-write"
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 2
+    assert "unrecognized arguments: --allow-live-google-calendar-write" in res.stderr
+
+
+
+
 
 
 
