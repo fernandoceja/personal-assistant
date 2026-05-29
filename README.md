@@ -65,7 +65,3 @@ Approved manual live-readonly wrapper (explicit opt-in for that run only):
 ## Private by design
 
 Real briefings, logs, todos, memory, credentials, and video outputs are **gitignored** and not part of the public repository. Use mock fixtures and sanitized samples for demos and portfolio artifacts.
-
-## License
-
-See [LICENSE](LICENSE).

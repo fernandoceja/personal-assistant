@@ -11,14 +11,14 @@ gate flag is present.
 Use the isolated Hermes profile for this setup:
 
 ```bash
-HOME=/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home
-HERMES_HOME=/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes
+HOME=~/Projects/hermes-agent-test/home
+HERMES_HOME=~/Projects/hermes-agent-test/home/.hermes
 ```
 
 Installed Google Workspace skill:
 
 ```text
-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/
+~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/
 ```
 
 ## Current authorized scopes
@@ -106,7 +106,7 @@ The combined consent URL was generated only after syntax checks and negative
 gate tests passed. It is stored in the isolated Hermes profile:
 
 ```text
-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/google_oauth_last_url.txt
+~/Projects/hermes-agent-test/home/.hermes/google_oauth_last_url.txt
 ```
 
 Do not paste or print the URL unless Fernando explicitly asks to proceed to
@@ -191,19 +191,19 @@ blocked by default.
 The controlled-write patch backups are stored beside the installed skill files:
 
 ```text
-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/SKILL.md.20260523-134921.drive-docs-sheets.bak
-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py.20260523-134921.drive-docs-sheets.bak
-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/setup.py.20260523-134921.drive-docs-sheets.bak
-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/SKILL.md.20260522-123747.controlled-write.bak
-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py.20260522-123747.controlled-write.bak
-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/setup.py.20260522-123747.controlled-write.bak
+~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/SKILL.md.20260523-134921.drive-docs-sheets.bak
+~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py.20260523-134921.drive-docs-sheets.bak
+~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/setup.py.20260523-134921.drive-docs-sheets.bak
+~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/SKILL.md.20260522-123747.controlled-write.bak
+~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py.20260522-123747.controlled-write.bak
+~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/setup.py.20260522-123747.controlled-write.bak
 ```
 
 Older pre-controlled-write script backups also exist for reference:
 
 ```text
-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py.20260515-114548.bak
-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/setup.py.20260515-114548.bak
+~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py.20260515-114548.bak
+~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/setup.py.20260515-114548.bak
 ```
 
 Do not restore or delete skill files, tokens, OAuth files, or credentials

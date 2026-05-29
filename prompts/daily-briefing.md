@@ -218,7 +218,7 @@ Open: briefings/YYYY-MM-DD-HH.md"
 
 tell application "Messages"
     set targetService to 1st service whose service type = iMessage
-    set targetBuddy to buddy "fceja9864@icloud.com" of targetService
+    set targetBuddy to buddy "<your-approved-self-email>" of targetService
     send msgBody to targetBuddy
 end tell
 ```

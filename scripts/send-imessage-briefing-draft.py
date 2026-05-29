@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -18,7 +19,7 @@ from pathlib import Path
 
 MAX_DRAFT_CHARS = 900
 MAX_LIVE_DRAFT_AGE_SECONDS = 4 * 60 * 60
-APPROVED_SELF_RECIPIENT = "nando0589@gmail.com"
+SELF_BRIEFING_RECIPIENT_ENV = "SELF_BRIEFING_RECIPIENT"
 CONFIRM_PHRASE = "SEND DAILY BRIEF TO FERNANDO"
 RAW_DETAIL_PATTERNS = (
     re.compile(r"https?://\S+", re.IGNORECASE),
@@ -63,14 +64,26 @@ def validate_draft_text(text: str) -> str:
     return draft
 
 
+def approved_self_recipient() -> str:
+    recipient = os.environ.get(SELF_BRIEFING_RECIPIENT_ENV, "").strip()
+    if not recipient:
+        raise ValueError(
+            f"Live send rejected: {SELF_BRIEFING_RECIPIENT_ENV} is not set "
+            "(export your approved self briefing recipient first)"
+        )
+    return recipient
+
+
 def validate_live_recipient(recipient: str | None) -> str:
     if not recipient:
         raise ValueError("--recipient is required when --send-approved-draft is used")
     clean = recipient.strip()
     if any(separator in clean for separator in (",", ";", "\n", "\r")):
         raise ValueError("Live send rejected: group or multi-recipient sends are not allowed")
-    if clean != APPROVED_SELF_RECIPIENT:
-        raise ValueError("Live send rejected: recipient is not the approved Fernando/self value")
+    if clean != approved_self_recipient():
+        raise ValueError(
+            f"Live send rejected: recipient does not match {SELF_BRIEFING_RECIPIENT_ENV}"
+        )
     return clean
 
 
@@ -151,7 +164,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--recipient",
-        help="Required with --send-approved-draft. Must exactly match the approved Fernando/self value.",
+        help=(
+            "Required with --send-approved-draft. Must exactly match "
+            f"{SELF_BRIEFING_RECIPIENT_ENV}."
+        ),
     )
     parser.add_argument(
         "--confirm",
@@ -189,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Audit manifest: {audit_path}")
             raise
 
-        print("Mode: SENT — approved draft sent to Fernando/self.")
+        print("Mode: SENT — approved draft sent to the configured self recipient.")
         print(f"Audit manifest: {audit_path}")
         return 0
     except (FileNotFoundError, ValueError, OSError, subprocess.CalledProcessError) as exc:

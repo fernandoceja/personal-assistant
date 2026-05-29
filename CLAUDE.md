@@ -6,7 +6,7 @@ A daily-use assistant for Fernando that reviews email and iMessage, surfaces pri
 
 ## Current Phase
 
-**Phase 2 — Read + send-to-self summary.** The assistant may read Gmail, iMessage, Google Calendar, and iCloud Photos. It may write to files under `personal-assistant/`. It may send one iMessage to Fernando only (nando0589@gmail.com Apple ID / the user's own number) containing a morning briefing summary. All other send/write/delete actions remain prohibited.
+**Phase 2 — Read + send-to-self summary.** The assistant may read Gmail, iMessage, Google Calendar, and iCloud Photos. It may write to files under `personal-assistant/`. It may send one iMessage to the approved self recipient only (`SELF_BRIEFING_RECIPIENT` / `<your-approved-self-email>`) containing a morning briefing summary. All other send/write/delete actions remain prohibited.
 
 When the phase changes, update this section AND the "Prohibited actions" list below.
 

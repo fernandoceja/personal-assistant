@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GAPI="${GAPI:-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py}"
-HERMES_TEST_HOME="${HOME_OVERRIDE:-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home}"
-HERMES_TEST_HOME_DIR="${HERMES_HOME_OVERRIDE:-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes}"
+GAPI="${GAPI:-${HERMES_HOME:-$HOME/Projects/hermes-agent-test/home/.hermes}/skills/productivity/google-workspace/scripts/google_api.py}"
+HERMES_TEST_HOME="${HOME_OVERRIDE:-${HERMES_TEST_HOME:-$HOME/Projects/hermes-agent-test/home}}"
+HERMES_TEST_HOME_DIR="${HERMES_HOME_OVERRIDE:-${HERMES_HOME:-$HOME/Projects/hermes-agent-test/home/.hermes}}"
 OUTPUT_DIR="$ROOT_DIR/source-packets/docs"
 
 DOC_ID=""

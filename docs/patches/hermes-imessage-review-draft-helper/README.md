@@ -2,7 +2,7 @@
 
 This folder preserves work that was accidentally created in the Hermes Agent repo:
 
-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/hermes-agent
+~/Projects/hermes-agent-test/hermes-agent
 
 Original commit:
 

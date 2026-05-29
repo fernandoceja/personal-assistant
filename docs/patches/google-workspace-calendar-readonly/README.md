@@ -67,19 +67,19 @@ This folder contains backup/documentation copies of the patched installed skill 
 
 Original installed skill location:
 
-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/
+~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/
 
 Backup location:
 
-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/patches/google-workspace-calendar-readonly/
+~/Projects/hermes-agent-test/patches/google-workspace-calendar-readonly/
 
 ## Validation commands
 
 Run the following from any directory:
 
 ```bash
-DEST="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/patches/google-workspace-calendar-readonly"
-SRC="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts"
+DEST="~/Projects/hermes-agent-test/patches/google-workspace-calendar-readonly"
+SRC="~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts"
 
 # Confirm backup files exist
 ls -l "$DEST/setup.py" "$DEST/google_api.py" "$DEST/README.md"
@@ -106,8 +106,8 @@ These commands do not authenticate, open OAuth, read calendar data, create sched
 If the installed Google Workspace skill is overwritten by an update, restore the Phase 2 safety patch by copying these backup files back into the installed skill scripts folder:
 
 ```bash
-DEST="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/patches/google-workspace-calendar-readonly"
-SRC="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts"
+DEST="~/Projects/hermes-agent-test/patches/google-workspace-calendar-readonly"
+SRC="~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts"
 
 cp "$DEST/setup.py" "$SRC/setup.py"
 cp "$DEST/google_api.py" "$SRC/google_api.py"

@@ -21,7 +21,9 @@ from zoneinfo import ZoneInfo
 
 # Core Paths
 REPO_ROOT = Path(__file__).resolve().parents[1]
-HERMES_AGENT_TEST_DIR = Path("/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test")
+HERMES_AGENT_TEST_DIR = Path(
+    os.environ.get("HERMES_AGENT_TEST_DIR", os.path.expanduser("~/Projects/hermes-agent-test"))
+)
 GOOGLE_HERMES_HOME = HERMES_AGENT_TEST_DIR / "home/.hermes"
 DEFAULT_PYTHON = GOOGLE_HERMES_HOME / "venvs/google-workspace/bin/python"
 DEFAULT_GOOGLE_API = GOOGLE_HERMES_HOME / "skills/productivity/google-workspace/scripts/google_api.py"

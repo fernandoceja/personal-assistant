@@ -15,7 +15,7 @@ The generated `briefings/YYYY-MM-DD-HH-safe.md` file is an assembled briefing in
   - `full-safe`
 - Defaults to dry-run/prompt-only behavior unless `--execute` is explicitly provided and Codex CLI is available.
 - Detects Codex CLI with `command -v codex`.
-- Detects the known Hermes test CLI path at `/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.local/bin/hermes`.
+- Detects the known Hermes test CLI path at `~/Projects/hermes-agent-test/home/.local/bin/hermes`.
 - Reads local Apple Calendar/iCalendar data in read-only mode for today and tomorrow.
 - `full-safe` is non-live by default. It includes Google Calendar readonly diagnostics only when the run is explicitly opted in with `--allow-live-google-calendar`.
 - Gmail readonly live safe-list access is gated behind `--allow-live-gmail-readonly`. Default `full-safe` writes a non-live Gmail placeholder only.
@@ -117,7 +117,7 @@ Use this prompt when Hermes or Open WebUI should request the terminal-backed liv
 
 ```text
 Run the personal-assistant terminal-backed safe morning briefing workflow from:
-/Users/fernandoceja/Documents/AI-Projects/personal-assistant
+~/Projects/personal-assistant
 
 Use only:
 scripts/run-live-morning-briefing.sh
@@ -170,13 +170,20 @@ Default behavior is dry-run/no-send. In dry-run mode, the helper prints the draf
 Sending is manual and requires both an explicit approval flag and an explicit recipient:
 
 ```bash
-scripts/send-imessage-briefing-draft.py briefings/YYYY-MM-DD-HH-imessage-draft.txt --send-approved-draft --recipient "+1XXXXXXXXXX"
+export SELF_BRIEFING_RECIPIENT="<your-approved-self-email>"
+scripts/send-imessage-briefing-draft.py briefings/YYYY-MM-DD-HH-imessage-draft.txt \
+  --send-approved-draft \
+  --recipient "$SELF_BRIEFING_RECIPIENT" \
+  --confirm "SEND DAILY BRIEF TO FERNANDO"
 ```
 
-Recipient may also be a Messages/iMessage buddy name if that is how Messages.app resolves the contact:
+Recipient may also be a Messages/iMessage buddy name if that is how Messages.app resolves the contact. It must exactly match `SELF_BRIEFING_RECIPIENT`:
 
 ```bash
-scripts/send-imessage-briefing-draft.py --send-approved-draft --recipient "Fernando"
+export SELF_BRIEFING_RECIPIENT="<your-approved-self-email-or-buddy-name>"
+scripts/send-imessage-briefing-draft.py --send-approved-draft \
+  --recipient "$SELF_BRIEFING_RECIPIENT" \
+  --confirm "SEND DAILY BRIEF TO FERNANDO"
 ```
 
 Safety boundaries for explicit-send:
@@ -316,7 +323,7 @@ This flag runs live Gmail readonly safe-list only, using the Hermes Google Works
 Exact command used by the runner:
 
 ```bash
-HOME="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home" HERMES_HOME="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes" "/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/venvs/google-workspace/bin/python" "/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py" gmail safe-list --window 48h --max-per-filter 10
+HOME="~/Projects/hermes-agent-test/home" HERMES_HOME="~/Projects/hermes-agent-test/home/.hermes" "~/Projects/hermes-agent-test/home/.hermes/venvs/google-workspace/bin/python" "~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py" gmail safe-list --window 48h --max-per-filter 10
 ```
 
 The safe packet stores only normalized safe-list records between Gmail safe-list markers. The final formatter maps those records into the six required sections and never prints raw Gmail JSON, message IDs, thread IDs, full bodies, attachment details, credentials, or raw Gmail API payloads.
@@ -430,12 +437,12 @@ Local Apple Calendar diagnostics and Google Calendar readonly diagnostics are se
 
 It uses the Hermes Google Workspace skill from:
 
-`/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes`
+`~/Projects/hermes-agent-test/home/.hermes`
 
 Exact command used by the runner:
 
 ```bash
-HERMES_HOME="/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes" "/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/hermes-agent/venv/bin/python3" "/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py" calendar safe-list --max 25
+HERMES_HOME="~/Projects/hermes-agent-test/home/.hermes" "~/Projects/hermes-agent-test/hermes-agent/venv/bin/python3" "~/Projects/hermes-agent-test/home/.hermes/skills/productivity/google-workspace/scripts/google_api.py" calendar safe-list --max 25
 ```
 
 Allowed event fields only:

@@ -83,9 +83,32 @@ def test_send_function_is_not_invoked_without_explicit_flag(tmp_path, monkeypatc
     draft.write_text("Status: Review-only briefing draft. Nothing sent.\n", encoding="utf-8")
     send_calls = []
     monkeypatch.setattr(mod, "send_imessage", lambda *_args, **_kwargs: send_calls.append("called"))
+    monkeypatch.setenv(mod.SELF_BRIEFING_RECIPIENT_ENV, "approved-self")
 
-    assert mod.main([str(draft), "--recipient", "Fernando"]) == 0
+    assert mod.main([str(draft), "--recipient", "approved-self"]) == 0
     assert send_calls == []
+
+
+def test_send_mode_requires_self_briefing_recipient_env(tmp_path, monkeypatch, capsys):
+    mod = _load_module()
+    draft = tmp_path / "briefings" / "2026-05-18-09-imessage-draft.txt"
+    draft.parent.mkdir()
+    draft.write_text("Status: Review-only briefing draft. Nothing sent.\n", encoding="utf-8")
+    monkeypatch.delenv(mod.SELF_BRIEFING_RECIPIENT_ENV, raising=False)
+    monkeypatch.setattr(mod, "send_imessage", lambda *_args, **_kwargs: pytest.fail("send should not be called"))
+
+    assert mod.main(
+        [
+            str(draft),
+            "--send-approved-draft",
+            "--recipient",
+            "approved-self",
+            "--confirm",
+            mod.CONFIRM_PHRASE,
+        ]
+    ) == 1
+    err = capsys.readouterr().err
+    assert mod.SELF_BRIEFING_RECIPIENT_ENV in err
 
 
 def test_send_mode_requires_valid_safe_draft_content(tmp_path, monkeypatch, capsys):
@@ -93,20 +116,41 @@ def test_send_mode_requires_valid_safe_draft_content(tmp_path, monkeypatch, caps
     draft = tmp_path / "briefings" / "2026-05-18-09-imessage-draft.txt"
     draft.parent.mkdir()
     draft.write_text("Status: Review-only briefing draft. Nothing sent.\nMessage ID: abc123\nhttps://example.invalid\n", encoding="utf-8")
+    monkeypatch.setenv(mod.SELF_BRIEFING_RECIPIENT_ENV, "approved-self")
     monkeypatch.setattr(mod, "send_imessage", lambda *_args, **_kwargs: pytest.fail("send should not be called"))
 
-    assert mod.main([str(draft), "--send-approved-draft", "--recipient", "Fernando"]) == 1
+    assert mod.main(
+        [
+            str(draft),
+            "--send-approved-draft",
+            "--recipient",
+            "approved-self",
+            "--confirm",
+            mod.CONFIRM_PHRASE,
+        ]
+    ) == 1
     err = capsys.readouterr().err
     assert "Draft failed safety validation" in err
 
 
 def test_send_mode_invokes_send_only_with_explicit_flag_and_recipient(tmp_path, monkeypatch):
     mod = _load_module()
-    draft = tmp_path / "briefings" / "2026-05-18-09-imessage-draft.txt"
+    today = mod.datetime.now(mod.timezone.utc).astimezone().date().isoformat()
+    draft = tmp_path / "briefings" / f"{today}-09-imessage-draft.txt"
     draft.parent.mkdir()
     draft.write_text("Status: Review-only briefing draft. Nothing sent.\nPriority Now: No urgent source-backed items.\n", encoding="utf-8")
     send_calls = []
+    monkeypatch.setenv(mod.SELF_BRIEFING_RECIPIENT_ENV, "approved-self")
     monkeypatch.setattr(mod, "send_imessage", lambda recipient, message: send_calls.append((recipient, message)))
 
-    assert mod.main([str(draft), "--send-approved-draft", "--recipient", "Fernando"]) == 0
-    assert send_calls == [("Fernando", draft.read_text(encoding="utf-8").strip())]
+    assert mod.main(
+        [
+            str(draft),
+            "--send-approved-draft",
+            "--recipient",
+            "approved-self",
+            "--confirm",
+            mod.CONFIRM_PHRASE,
+        ]
+    ) == 0
+    assert send_calls == [("approved-self", draft.read_text(encoding="utf-8").strip())]

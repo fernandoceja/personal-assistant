@@ -148,7 +148,7 @@ Give exactly one next action that can be completed in a short, realistic work bl
 
 Goal: Produce a public-source-only Morning AI Briefing — Phase 1 using the approved source whitelist, ranking rules, hype filter, safety rules, personalization priorities, and exact output format in this prompt.
 
-Repo/context: /Users/fernandoceja/Documents/AI-Projects/personal-assistant; this is a read-only briefing workflow based on public AI sources only.
+Repo/context: ~/Projects/personal-assistant; this is a read-only briefing workflow based on public AI sources only.
 
 Allowed files: Only this prompt file unless Fernando explicitly authorizes additional files.
 

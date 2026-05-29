@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HERMES_AGENT_DIR="${HERMES_AGENT_DIR:-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/hermes-agent}"
-HERMES_TEST_HOME="${HOME_OVERRIDE:-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home}"
-HERMES_TEST_HOME_DIR="${HERMES_HOME_OVERRIDE:-/Users/fernandoceja/Documents/AI-Projects/hermes-agent-test/home/.hermes}"
+HERMES_AGENT_DIR="${HERMES_AGENT_DIR:-$HOME/Projects/hermes-agent-test/hermes-agent}"
+HERMES_TEST_HOME="${HOME_OVERRIDE:-${HERMES_TEST_HOME:-$HOME/Projects/hermes-agent-test/home}}"
+HERMES_TEST_HOME_DIR="${HERMES_HOME_OVERRIDE:-${HERMES_HOME:-$HOME/Projects/hermes-agent-test/home/.hermes}}"
 OUTPUT_DIR="$ROOT_DIR/source-packets/web"
 
 QUERY=""

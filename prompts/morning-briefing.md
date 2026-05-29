@@ -20,12 +20,12 @@ Run this at the start of the day. Produces one dated briefing file and one dated
 5. Read yesterday's `todos/YYYY-MM-DD.md` if it exists. Collect any unchecked items for carry-forward.
 6. Write `briefings/<today>.md` using the Morning Briefing format from `CLAUDE.md`. Add a **Calendar** section between Priority and FYI listing today's events compactly (time — title — location if any). In the Ignore section, show counts by category and list senders compactly.
 7. Write `todos/<today>.md` using the To-Do format. Populate "Today" from Priority items and same-day calendar events that require action; populate "Carried forward" from yesterday's unchecked items (with their original dates).
-8. Send one iMessage to Fernando (fceja9864@icloud.com) using osascript with the iMessage Summary Format from `CLAUDE.md`. Priority items + calendar highlights + to-do count only. Use this script pattern:
+8. Send one iMessage to the approved self recipient (`<your-approved-self-email>` / `SELF_BRIEFING_RECIPIENT`) using osascript with the iMessage Summary Format from `CLAUDE.md`. Priority items + calendar highlights + to-do count only. Use this script pattern:
    ```applescript
    set msgBody to "Morning Briefing — YYYY-MM-DD\nPriority ([N]):\n• ...\nCalendar: ...\nTo-do: [N] items — open briefings/YYYY-MM-DD.md"
    tell application "Messages"
        set targetService to 1st service whose service type = iMessage
-       set targetBuddy to buddy "fceja9864@icloud.com" of targetService
+       set targetBuddy to buddy "<your-approved-self-email>" of targetService
        send msgBody to targetBuddy
    end tell
    ```
