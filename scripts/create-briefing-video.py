@@ -1031,14 +1031,17 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], targe
         right: 0;
         bottom: 22px;
         height: 70px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
         pointer-events: none;
         z-index: 100;
       }}
       .caption-chunk {{
         position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        margin: 0 auto;
+        width: max-content;
+        max-width: 1200px;
         opacity: 0;
         background: rgba(11, 11, 11, 0.95);
         color: #f6f1e8;
@@ -1047,7 +1050,6 @@ def write_hyperframes_project(workspace: Path, storyboard: dict[str, Any], targe
         font-weight: 500;
         padding: 8px 18px;
         border-radius: 12px;
-        max-width: 1200px;
         text-align: center;
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
         border: 1px solid rgba(255, 255, 255, 0.1);
