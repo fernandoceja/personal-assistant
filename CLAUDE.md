@@ -10,6 +10,16 @@ A daily-use assistant for Fernando that reviews email and iMessage, surfaces pri
 
 When the phase changes, update this section AND the "Prohibited actions" list below.
 
+## Approved local briefing runners (repo)
+
+For daily briefings in this repository, prefer the safe wrappers (dry-run packet assembly by default):
+
+- `bash run-briefing.sh --mode full-safe` — non-live unless `--allow-live-google-calendar` and/or `--allow-live-gmail-readonly` are added
+- `scripts/run-live-morning-briefing.sh` — morning slot with explicit live readonly gates
+- `run-live-briefing.sh [morning|midday|evening]` — same safety model for other slots
+
+The legacy Claude CLI path in `run-briefing.sh` (Gmail MCP, iMessage, `memory.md` updates) is disabled unless `--allow-legacy-claude-briefing` is passed with explicit approval. Google Workspace live writes use `scripts/google-workspace-write.py` with per-service flags (calendar delete requires `--allow-live-calendar-delete`).
+
 ## Scope
 
 **Allowed:**

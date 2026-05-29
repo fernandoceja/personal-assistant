@@ -429,6 +429,41 @@ def test_shift_write_mode_breaks_mapping():
         assert mock_run_gws.call_count == 1
 
 
+def test_mode_write_without_calendar_flag_refused():
+    cmd = [
+        sys.executable,
+        str(SCRIPT_PATH),
+        "--mode", "write",
+        "calendar", "create",
+        "--summary", "Test Event",
+        "--start", "2026-05-24T10:00:00",
+        "--end", "2026-05-24T11:00:00",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 2
+    data = json.loads(res.stdout)
+    assert data["status"] == "error"
+    assert "READ-ONLY" in data["message"]
+    assert data["writes_performed"] is False
+
+
+def test_google_writes_flag_without_calendar_flag_refused():
+    cmd = [
+        sys.executable,
+        str(SCRIPT_PATH),
+        "--allow-live-google-writes",
+        "calendar", "create",
+        "--summary", "Test Event",
+        "--start", "2026-05-24T10:00:00",
+        "--end", "2026-05-24T11:00:00",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 2
+    data = json.loads(res.stdout)
+    assert data["status"] == "error"
+    assert data["writes_performed"] is False
+
+
 def test_calendar_delete_without_delete_flag():
     mod = _load_module()
 

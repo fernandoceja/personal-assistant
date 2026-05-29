@@ -225,6 +225,26 @@ def log_write(action: str, details: dict):
     with open(WRITE_LOG_FILE, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
+def service_write_approved(args) -> bool:
+    """Return True only when the command has the matching service-specific live gate."""
+    if args.service == "calendar":
+        if args.action in ["delete", "cleanup-duplicates"]:
+            return bool(getattr(args, "allow_live_calendar_delete", False))
+        return bool(getattr(args, "allow_live_calendar_write", False))
+    if args.service == "gmail":
+        if args.action == "draft-create":
+            return bool(getattr(args, "allow_live_gmail_draft", False))
+        if args.action == "send-draft":
+            return bool(getattr(args, "allow_live_gmail_send", False))
+        return False
+    if args.service == "docs":
+        return bool(getattr(args, "allow_live_docs_write", False))
+    if args.service == "sheets":
+        return bool(getattr(args, "allow_live_sheets_write", False))
+    if args.service == "drive":
+        return bool(getattr(args, "allow_live_drive_write", False))
+    return False
+
 def run_gws_command(args_list: list[str]) -> dict:
     """Execute a command via the underlying google_api.py compat script."""
     cmd = [
@@ -410,46 +430,9 @@ def main():
     args.allow_live_calendar_delete = getattr(args, "allow_live_calendar_delete", False) or allow_live_calendar_delete_flag
     args.mode = mode_flag
     
-    # Determine the Safety Mode:
-    # Mode 3 (Approved Write Mode) is active if:
-    # 1. args.mode == "write" OR
-    # 2. --allow-live-google-writes is present OR
-    # 3. Command-specific approval flag is present.
-    # Note: Destructive actions like email send (gmail send-draft) must not use a generic writes flag.
-    
-    is_approved = False
-    
-    if args.mode == "write":
-        if args.service == "calendar" and args.action in ["delete", "cleanup-duplicates"]:
-            is_approved = getattr(args, "allow_live_calendar_delete", False)
-        else:
-            is_approved = True
-    elif args.allow_live_google_writes:
-        # Check if action is sending email or deleting calendar (requires specific approval)
-        if args.service == "gmail" and args.action == "send-draft":
-            is_approved = getattr(args, "allow_live_gmail_send", False)
-        elif args.service == "calendar" and args.action in ["delete", "cleanup-duplicates"]:
-            is_approved = getattr(args, "allow_live_calendar_delete", False)
-        else:
-            is_approved = True
-    else:
-        # Check service-specific flags
-        if args.service == "calendar":
-            if args.action in ["delete", "cleanup-duplicates"]:
-                is_approved = getattr(args, "allow_live_calendar_delete", False)
-            else:
-                is_approved = getattr(args, "allow_live_calendar_write", False)
-        elif args.service == "gmail":
-            if args.action == "draft-create":
-                is_approved = getattr(args, "allow_live_gmail_draft", False)
-            elif args.action == "send-draft":
-                is_approved = getattr(args, "allow_live_gmail_send", False)
-        elif args.service == "docs":
-            is_approved = getattr(args, "allow_live_docs_write", False)
-        elif args.service == "sheets":
-            is_approved = getattr(args, "allow_live_sheets_write", False)
-        elif args.service == "drive":
-            is_approved = getattr(args, "allow_live_drive_write", False)
+    # Mode 3 (Approved Write Mode) always requires the matching service-specific gate.
+    # --mode write and --allow-live-google-writes do not bypass per-action flags.
+    is_approved = service_write_approved(args)
             
     # Resolve exact mode
     mode = "read-only"
