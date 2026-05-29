@@ -100,7 +100,7 @@ def parse_shift_text(text: str, date_str: str) -> list[dict]:
             # Title is the rest of the text
             title = line[:start_idx] + line[end_idx:]
             title = re.sub(r"\b[pP][sS][tT]\b", "", title)  # Strip timezone references
-            title = title.strip(" :(),;-–—")
+            title = title.strip(" :(),;-–—|")
             if not title:
                 title = "Work Segment"
             
