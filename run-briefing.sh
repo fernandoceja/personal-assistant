@@ -19,6 +19,7 @@ MODE=""
 ALLOW_LIVE_GOOGLE_CALENDAR=0
 ALLOW_LIVE_GMAIL_READONLY=0
 GMAIL_MOCK=0
+ALLOW_LEGACY_CLAUDE_BRIEFING=0
 
 cd "$PROJECT_DIR"
 
@@ -44,11 +45,24 @@ while [[ $# -gt 0 ]]; do
       GMAIL_MOCK=1
       shift
       ;;
+    --allow-legacy-claude-briefing)
+      ALLOW_LEGACY_CLAUDE_BRIEFING=1
+      shift
+      ;;
     *)
       shift
       ;;
   esac
 done
+
+if [[ -z "$MODE" ]]; then
+  MODE="full-safe"
+fi
+
+if [[ "$MODE" != "full-safe" ]]; then
+  echo "ERROR: Unsupported mode: $MODE. Use --mode full-safe (default)." >&2
+  exit 2
+fi
 
 if [[ "$MODE" == "full-safe" ]]; then
   echo "Safe briefing wrapper started."
@@ -172,6 +186,11 @@ if [[ "$MODE" == "full-safe" ]]; then
   fi
 
   exit "$validation_status"
+fi
+
+if [[ "$ALLOW_LEGACY_CLAUDE_BRIEFING" -ne 1 ]]; then
+  echo "ERROR: Legacy Claude briefing path is disabled. Use --mode full-safe (default) or pass --allow-legacy-claude-briefing only with explicit approval." >&2
+  exit 2
 fi
 
 echo "=== Briefing run started: $(date '+%Y-%m-%d %H:%M:%S %Z') ===" >> "$LOG_FILE"

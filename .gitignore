@@ -1,7 +1,12 @@
 .DS_Store
+__pycache__/
+*.py[cod]
+*$py.class
 archive/
 briefings/
 drafts/
+drafts/cleanup-preview-*.json
+logs/
 logs/*.log
 memory.md
 todos/
@@ -10,10 +15,13 @@ weekly-reviews/
 video-workspace/
 logs/audit/
 
+google_client_secret.json
 google_client_secret*.json
+google_token.json
 google_token*.json
 google_oauth_pending*.json
 google_oauth_last_url.txt
+credentials/
 credentials*.json
 client_secret*.json
 .env
